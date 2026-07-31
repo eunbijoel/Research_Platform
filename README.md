@@ -3,16 +3,16 @@
 **An Organizational Research Intelligence Platform**
 
 > Memory가 핵심이고, Intelligence는 결과입니다.  
-> Phase 1 = Memory MVP: Pipeline → Metadata/Facts → Knowledge Base → Research Chat (citations)
+> Phase 1–2: Pipeline → Metadata/Facts → Knowledge Base → Chat + Similarity
 
 ## Goals
 
 1. **Enable evidence-based reuse of organizational research assets**
 2. **Preserve and operationalize institutional research knowledge**
 
-Non-goals for Phase 1: Similarity / Proposal / Milestone services, Catena-X/KMX, generic “center ChatGPT”.
+Non-goals (for now): Proposal / Milestone services, Catena-X/KMX, generic “center ChatGPT”.
 
-## Architecture (Phase 1)
+## Architecture (Phase 1–2)
 
 ```
 Source Documents
@@ -23,7 +23,9 @@ Metadata / Facts
     ↓
 Knowledge Base
     ↓
-AI Services (Chat via Research Memory Engine: Retrieval + Generation)
+AI Services
+  · Chat (Retrieval + Generation, citations required)
+  · Similarity (Retrieval + Reasoning: upload↔KB / KB↔KB / uploads)
 ```
 
 ## Location
@@ -50,6 +52,9 @@ python -m research_memory.cli seed_demo
 # ask without UI
 python -m research_memory.cli chat "Research Memory의 핵심 원칙은?"
 
+# similarity: new file vs KB
+python -m research_memory.cli similarity ./demo/center_overview.md --project DEMO-2026
+
 # UI
 ./run_app.sh
 ```
@@ -65,13 +70,15 @@ If Ollama is offline, Chat still returns **extractive** answers with citations.
 python -m research_memory.cli ingest ./demo --project DEMO-2026
 python -m research_memory.cli list
 python -m research_memory.cli chat "센터 역할은 무엇인가?"
+python -m research_memory.cli similarity ./demo/proposal_excerpt.md
+python -m research_memory.cli similarity --doc-a <id> --doc-b <id>
 ```
 
-## Supported ingest formats (Phase 1)
+## Supported ingest formats
 
 PDF · DOCX · TXT/MD · CSV · XLSX · HWPX (best-effort XML)
 
-Legacy `.hwp` binary is out of Phase 1 scope (reuse HWP_analyst backends in a later phase).
+Legacy `.hwp` binary is deferred (reuse HWP_analyst backends later).
 
 ## Layout
 
@@ -79,17 +86,17 @@ Legacy `.hwp` binary is out of Phase 1 scope (reuse HWP_analyst backends in a la
 research_memory/
   pipeline/     # extract → chunk → metadata/facts → ingest
   kb/           # sqlite + tf-idf index
-  engine/       # retrieval + chat generation
+  engine/       # retrieval + chat + similarity
 app.py          # Streamlit UI
-demo/           # non-sensitive sample corpus (after seed_demo)
+demo/           # non-sensitive sample corpus
 ```
 
 ## Phase map
 
-| Phase | Focus |
-|-------|--------|
-| **1 (this)** | Pipeline, Metadata/Facts, KB, Chat+citations |
-| 2 | Similarity service |
-| 3 | Proposal service |
-| 4 | Milestone / Tracking |
-| 5 | Ops hardening |
+| Phase | Focus | Status |
+|-------|--------|--------|
+| **1** | Pipeline, Metadata/Facts, KB, Chat+citations | done |
+| **2** | Similarity service (upload↔KB / KB↔KB) | done |
+| 3 | Proposal service | next |
+| 4 | Milestone / Tracking | planned |
+| 5 | Ops hardening | planned |

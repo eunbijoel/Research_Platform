@@ -6,6 +6,7 @@ from pathlib import Path
 
 from research_memory.config import PROJECT_ROOT, ensure_data_dirs
 from research_memory.engine.chat import answer_question
+from research_memory.engine.similarity import compare_kb_documents, compare_upload_vs_kb
 from research_memory.kb.repository import KnowledgeRepository
 from research_memory.pipeline.ingest import ingest_file
 
@@ -106,6 +107,31 @@ Research Memory Phase 1 범위 확정
         print(json.dumps(result, ensure_ascii=False))
 
 
+def cmd_similarity(args: argparse.Namespace) -> None:
+    repo = KnowledgeRepository()
+    if args.doc_a and args.doc_b:
+        result = compare_kb_documents(
+            args.doc_a, args.doc_b, repo=repo, threshold=args.threshold
+        )
+    else:
+        path = Path(args.path)
+        result = compare_upload_vs_kb(
+            path.read_bytes(),
+            path.name,
+            repo=repo,
+            threshold=args.threshold,
+            project_id=args.project or None,
+        )
+    print(json.dumps({"stats": result.get("stats"), "ok": result.get("ok"), "error": result.get("error"), "mode": result.get("mode")}, ensure_ascii=False))
+    for i, p in enumerate(result.get("pairs") or [], start=1):
+        print(
+            f"[{i}] {p['verdict']} {p['score']:.3f} | "
+            f"{p['file_a']}/{p['location_a']} ↔ {p['file_b']}/{p['location_b']}"
+        )
+        print(f"    A: {p['text_a'][:120]}")
+        print(f"    B: {p['text_b'][:120]}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="research-memory")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -124,6 +150,14 @@ def main() -> None:
 
     p_seed = sub.add_parser("seed_demo", help="Create and ingest demo corpus")
     p_seed.set_defaults(func=cmd_seed_demo)
+
+    p_sim = sub.add_parser("similarity", help="Similarity: file vs KB or two KB docs")
+    p_sim.add_argument("path", nargs="?", help="File to compare against KB")
+    p_sim.add_argument("--doc-a", default="", help="KB document id A")
+    p_sim.add_argument("--doc-b", default="", help="KB document id B")
+    p_sim.add_argument("--project", default="")
+    p_sim.add_argument("--threshold", type=float, default=0.72)
+    p_sim.set_defaults(func=cmd_similarity)
 
     args = parser.parse_args()
     args.func(args)
