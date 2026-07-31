@@ -6,6 +6,7 @@ from pathlib import Path
 
 from research_memory.config import PROJECT_ROOT, ensure_data_dirs
 from research_memory.engine.chat import answer_question
+from research_memory.engine.proposal import run_proposal_pipeline
 from research_memory.engine.similarity import compare_kb_documents, compare_upload_vs_kb
 from research_memory.kb.repository import KnowledgeRepository
 from research_memory.pipeline.ingest import ingest_file
@@ -132,6 +133,31 @@ def cmd_similarity(args: argparse.Namespace) -> None:
         print(f"    B: {p['text_b'][:120]}")
 
 
+def cmd_proposal(args: argparse.Namespace) -> None:
+    path = Path(args.path)
+    result = run_proposal_pipeline(
+        path.read_bytes(),
+        path.name,
+        project_id=args.project or None,
+        selected_role_index=args.role_index,
+    )
+    if not result.get("ok"):
+        print(json.dumps({"ok": False, "error": result.get("error")}, ensure_ascii=False))
+        return
+    summary = {
+        "ok": True,
+        "project_name": (result.get("rfp") or {}).get("project_name"),
+        "roles": len(result.get("roles") or []),
+        "evidence": len(result.get("evidence") or []),
+        "selected_role": (result.get("selected_role") or {}).get("role"),
+        "draft_mode": (result.get("draft") or {}).get("mode"),
+    }
+    print(json.dumps(summary, ensure_ascii=False))
+    out = Path(args.out) if args.out else Path("proposal_draft.md")
+    out.write_text(result.get("markdown") or "", encoding="utf-8")
+    print(f"wrote {out}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="research-memory")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -158,6 +184,13 @@ def main() -> None:
     p_sim.add_argument("--project", default="")
     p_sim.add_argument("--threshold", type=float, default=0.72)
     p_sim.set_defaults(func=cmd_similarity)
+
+    p_prop = sub.add_parser("proposal", help="RFP + KB evidence → center draft")
+    p_prop.add_argument("path", help="RFP file path")
+    p_prop.add_argument("--project", default="")
+    p_prop.add_argument("--role-index", type=int, default=0)
+    p_prop.add_argument("--out", default="proposal_draft.md")
+    p_prop.set_defaults(func=cmd_proposal)
 
     args = parser.parse_args()
     args.func(args)

@@ -12,6 +12,15 @@ if str(ROOT) not in sys.path:
 from research_memory.config import MODEL_NAME, MOCK_LLM, ensure_data_dirs
 from research_memory.engine.chat import answer_question
 from research_memory.engine.llm import llm_available
+from research_memory.engine.proposal import (
+    analyze_rfp,
+    build_markdown,
+    export_docx_bytes,
+    gather_kb_evidence,
+    generate_draft,
+    parse_rfp_bytes,
+    suggest_roles,
+)
 from research_memory.engine.similarity import (
     compare_kb_documents,
     compare_upload_vs_kb,
@@ -19,6 +28,7 @@ from research_memory.engine.similarity import (
 )
 from research_memory.kb.repository import KnowledgeRepository
 from research_memory.pipeline.ingest import ingest_bytes
+from research_memory.schema import Citation
 
 st.set_page_config(
     page_title="Research Memory Platform",
@@ -34,8 +44,7 @@ def main() -> None:
     st.title("Research Memory Platform")
     st.caption(
         "An Organizational Research Intelligence Platform — "
-        "Phase 1 Memory + Phase 2 Similarity "
-        "(Pipeline → Metadata/Facts → KB → Chat / Similarity)"
+        "Phase 1–3: Memory · Similarity · Proposal"
     )
 
     with st.sidebar:
@@ -51,15 +60,14 @@ def main() -> None:
             st.warning("RM_MOCK_LLM=true")
         st.divider()
         st.markdown(
-            "**Phase 1–2 scope**\n"
-            "- Ingest PDF/DOCX/TXT/MD/CSV/XLSX/HWPX\n"
-            "- Metadata / Facts + Knowledge Base\n"
-            "- Research Chat (citations)\n"
-            "- Similarity (upload↔KB / KB↔KB / uploads)"
+            "**Phase 1–3**\n"
+            "- Chat (citations)\n"
+            "- Similarity (upload↔KB)\n"
+            "- Proposal (RFP + KB evidence → draft)"
         )
 
-    tab_chat, tab_sim, tab_ingest, tab_library, tab_facts = st.tabs(
-        ["Research Chat", "Similarity", "Ingest", "Library", "Facts"]
+    tab_chat, tab_sim, tab_prop, tab_ingest, tab_library, tab_facts = st.tabs(
+        ["Research Chat", "Similarity", "Proposal", "Ingest", "Library", "Facts"]
     )
 
     with tab_ingest:
@@ -70,6 +78,8 @@ def main() -> None:
         _facts_tab()
     with tab_sim:
         _similarity_tab()
+    with tab_prop:
+        _proposal_tab()
     with tab_chat:
         _chat_tab()
 
@@ -280,6 +290,134 @@ def _render_similarity_result(result: dict) -> None:
                 f"`{p['file_b']}` / {p['location_b']}  \n"
                 f"> {p['text_b'][:400]}"
             )
+
+
+def _proposal_tab() -> None:
+    st.subheader("Proposal AI (Retrieval + Reasoning + Generation)")
+    st.caption(
+        "RFP를 분석하고 Knowledge Base 근거로 우리 센터 파트 초안을 만듭니다. "
+        "전체 제안서 자동 완성이 아닙니다."
+    )
+    project_filter = st.text_input(
+        "KB Project filter (optional)",
+        key="prop_project",
+        placeholder="e.g. DEMO-2026",
+    )
+    rfp_file = st.file_uploader(
+        "RFP / 공고문",
+        type=["pdf", "docx", "txt", "md"],
+        key="prop_rfp_upload",
+    )
+    if st.button("Analyze RFP + Match Memory", type="primary", disabled=not rfp_file):
+        with st.spinner("Parsing RFP and retrieving KB evidence…"):
+            chunks, err = parse_rfp_bytes(rfp_file.getvalue(), rfp_file.name)
+            if err and not chunks:
+                st.error(err)
+                return
+            rfp = analyze_rfp(chunks)
+            evidence = gather_kb_evidence(
+                rfp,
+                repo=repo,
+                project_id=project_filter.strip() or None,
+            )
+            roles = suggest_roles(rfp, evidence)
+            st.session_state["prop_rfp_result"] = rfp
+            st.session_state["prop_evidence"] = [c.to_dict() for c in evidence]
+            st.session_state["prop_roles"] = roles
+            st.session_state.pop("prop_draft", None)
+            st.session_state.pop("prop_selected", None)
+
+    rfp = st.session_state.get("prop_rfp_result")
+    if not rfp or not isinstance(rfp, dict):
+        st.info("RFP를 업로드하고 분석을 실행하세요.")
+        return
+
+    st.markdown("### RFP analysis")
+    cols = st.columns(2)
+    cols[0].write(f"**사업명:** {rfp.get('project_name')}")
+    cols[0].write(f"**발주:** {rfp.get('organization')}")
+    cols[1].write(f"**기간:** {rfp.get('duration')}")
+    cols[1].write(f"**예산:** {rfp.get('budget')}")
+    st.write(f"**목적:** {rfp.get('purpose')}")
+    if rfp.get("error"):
+        st.warning(rfp["error"])
+    with st.expander("요구사항 / KPI"):
+        st.json(
+            {
+                "mandatory_requirements": rfp.get("mandatory_requirements"),
+                "tech_requirements": rfp.get("tech_requirements"),
+                "kpi": rfp.get("kpi"),
+            }
+        )
+
+    evidence_dicts = st.session_state.get("prop_evidence") or []
+    st.markdown(f"### KB evidence ({len(evidence_dicts)})")
+    if not evidence_dicts:
+        st.warning("Memory 근거가 없습니다. Ingest 탭에서 센터 자료를 먼저 넣으세요.")
+    else:
+        for i, c in enumerate(evidence_dicts[:10], start=1):
+            st.markdown(
+                f"**[{i}] {c['filename']} / {c['location']}** "
+                f"(score={c['score']:.3f})  \n{c['snippet'][:280]}"
+            )
+
+    roles = st.session_state.get("prop_roles") or []
+    st.markdown("### Role candidates")
+    role_labels = [f"{i + 1}. {r.get('role', '?')}" for i, r in enumerate(roles)]
+    choice = st.radio("Select role", role_labels, key="prop_role_radio") if roles else None
+    selected = roles[role_labels.index(choice)] if choice else None
+    if selected:
+        st.write(selected.get("reason", ""))
+        st.caption(f"evidence: {selected.get('evidence', '')}")
+
+    if st.button("Generate center draft", type="primary", disabled=not selected):
+        with st.spinner("Generating draft from Memory evidence…"):
+            cites = [
+                Citation(
+                    document_id=c["document_id"],
+                    filename=c["filename"],
+                    location=c["location"],
+                    snippet=c["snippet"],
+                    score=float(c["score"]),
+                )
+                for c in evidence_dicts
+            ]
+            draft = generate_draft(rfp, selected, cites)
+            st.session_state["prop_draft"] = draft
+            st.session_state["prop_selected"] = selected
+
+    draft = st.session_state.get("prop_draft")
+    selected = st.session_state.get("prop_selected") or selected
+    if draft and selected:
+        st.markdown("### Draft")
+        for key, label in (
+            ("necessity", "참여 필요성"),
+            ("center_role", "담당 역할"),
+            ("work_details", "수행내용"),
+            ("deliverables", "산출물"),
+            ("open_questions", "확인 필요"),
+        ):
+            st.markdown(f"**{label}**")
+            st.write(draft.get(key, ""))
+        cites = [
+            Citation(
+                document_id=c["document_id"],
+                filename=c["filename"],
+                location=c["location"],
+                snippet=c["snippet"],
+                score=float(c["score"]),
+            )
+            for c in evidence_dicts
+        ]
+        md = build_markdown(rfp, selected, draft, cites)
+        st.download_button("Download Markdown", md, file_name="proposal_draft.md")
+        docx_bytes = export_docx_bytes(rfp, selected, draft)
+        st.download_button(
+            "Download DOCX",
+            docx_bytes,
+            file_name="proposal_draft.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
 
 
 def _chat_tab() -> None:

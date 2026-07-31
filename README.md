@@ -3,7 +3,7 @@
 **An Organizational Research Intelligence Platform**
 
 > Memory가 핵심이고, Intelligence는 결과입니다.  
-> Phase 1–2: Pipeline → Metadata/Facts → Knowledge Base → Chat + Similarity
+> Phase 1–3: Pipeline → Metadata/Facts → Knowledge Base → Chat + Similarity + Proposal
 
 ## Goals
 
@@ -12,7 +12,7 @@
 
 Non-goals (for now): Proposal / Milestone services, Catena-X/KMX, generic “center ChatGPT”.
 
-## Architecture (Phase 1–2)
+## Architecture (Phase 1–3)
 
 ```
 Source Documents
@@ -25,7 +25,8 @@ Knowledge Base
     ↓
 AI Services
   · Chat (Retrieval + Generation, citations required)
-  · Similarity (Retrieval + Reasoning: upload↔KB / KB↔KB / uploads)
+  · Similarity (Retrieval + Reasoning: upload↔KB / KB↔KB)
+  · Proposal (RFP analyze + KB evidence → center draft)
 ```
 
 ## Location
@@ -72,6 +73,7 @@ python -m research_memory.cli list
 python -m research_memory.cli chat "센터 역할은 무엇인가?"
 python -m research_memory.cli similarity ./demo/proposal_excerpt.md
 python -m research_memory.cli similarity --doc-a <id> --doc-b <id>
+python -m research_memory.cli proposal ./path/to/rfp.md --project DEMO-2026 --out proposal_draft.md
 ```
 
 ## Supported ingest formats
@@ -97,6 +99,6 @@ demo/           # non-sensitive sample corpus
 |-------|--------|--------|
 | **1** | Pipeline, Metadata/Facts, KB, Chat+citations | done |
 | **2** | Similarity service (upload↔KB / KB↔KB) | done |
-| 3 | Proposal service | next |
-| 4 | Milestone / Tracking | planned |
+| **3** | Proposal service (RFP + KB → draft) | done |
+| 4 | Milestone / Tracking | next |
 | 5 | Ops hardening | planned |
