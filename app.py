@@ -26,6 +26,12 @@ from research_memory.engine.similarity import (
     compare_upload_vs_kb,
     compare_uploads,
 )
+from research_memory.engine.tracking import (
+    auto_link_milestones,
+    gap_report,
+    project_timeline,
+    seed_demo_project,
+)
 from research_memory.kb.repository import KnowledgeRepository
 from research_memory.pipeline.ingest import ingest_bytes
 from research_memory.schema import Citation
@@ -44,7 +50,7 @@ def main() -> None:
     st.title("Research Memory Platform")
     st.caption(
         "An Organizational Research Intelligence Platform — "
-        "Phase 1–3: Memory · Similarity · Proposal"
+        "Phase 1–4: Memory · Similarity · Proposal · Milestone"
     )
 
     with st.sidebar:
@@ -60,14 +66,21 @@ def main() -> None:
             st.warning("RM_MOCK_LLM=true")
         st.divider()
         st.markdown(
-            "**Phase 1–3**\n"
-            "- Chat (citations)\n"
-            "- Similarity (upload↔KB)\n"
-            "- Proposal (RFP + KB evidence → draft)"
+            "**Phase 1–4**\n"
+            "- Chat / Similarity / Proposal\n"
+            "- Milestone Tracking + gap report"
         )
 
-    tab_chat, tab_sim, tab_prop, tab_ingest, tab_library, tab_facts = st.tabs(
-        ["Research Chat", "Similarity", "Proposal", "Ingest", "Library", "Facts"]
+    tab_chat, tab_sim, tab_prop, tab_mile, tab_ingest, tab_library, tab_facts = st.tabs(
+        [
+            "Research Chat",
+            "Similarity",
+            "Proposal",
+            "Milestone",
+            "Ingest",
+            "Library",
+            "Facts",
+        ]
     )
 
     with tab_ingest:
@@ -80,6 +93,8 @@ def main() -> None:
         _similarity_tab()
     with tab_prop:
         _proposal_tab()
+    with tab_mile:
+        _milestone_tab()
     with tab_chat:
         _chat_tab()
 
@@ -418,6 +433,121 @@ def _proposal_tab() -> None:
             file_name="proposal_draft.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
+
+
+def _milestone_tab() -> None:
+    st.subheader("Milestone AI (Tracking)")
+    st.caption(
+        "과제·마일스톤을 등록하고, Memory에 적재된 산출물과 대조해 갭/지연을 추적합니다."
+    )
+
+    if st.button("Seed DEMO-2026 project + milestones"):
+        result = seed_demo_project(repo=repo, project_id="DEMO-2026")
+        st.success(result)
+
+    with st.expander("Create / update project", expanded=False):
+        pid = st.text_input("Project ID", value="DEMO-2026", key="mile_pid")
+        title = st.text_input("Title", value="Research Memory Platform 데모 과제", key="mile_title")
+        owner = st.text_input("Owner", key="mile_owner")
+        c1, c2 = st.columns(2)
+        start = c1.text_input("Start (YYYY-MM-DD)", key="mile_start")
+        end = c2.text_input("End (YYYY-MM-DD)", key="mile_end")
+        if st.button("Save project", key="mile_save_project"):
+            repo.upsert_project(
+                project_id=pid.strip(),
+                title=title.strip() or pid.strip(),
+                owner=owner.strip(),
+                start_date=start.strip(),
+                end_date=end.strip(),
+            )
+            st.success(f"Saved project {pid}")
+
+    projects = repo.list_projects()
+    if not projects:
+        st.info("프로젝트가 없습니다. Seed 또는 Create project를 먼저 하세요.")
+        return
+
+    labels = {
+        f"{p['project_id']} · {p.get('title')} (ms={p.get('milestone_count', 0)}, docs={p.get('document_count', 0)})": p[
+            "project_id"
+        ]
+        for p in projects
+    }
+    choice = st.selectbox("Project", list(labels.keys()), key="mile_project_select")
+    project_id = labels[choice]
+
+    with st.expander("Add milestone"):
+        m_title = st.text_input("Milestone title", key="mile_new_title")
+        m_due = st.text_input("Due date (YYYY-MM-DD)", key="mile_new_due")
+        m_type = st.selectbox(
+            "Deliverable type",
+            ["proposal", "paper", "note", "meeting", "excel", "other"],
+            key="mile_new_type",
+        )
+        m_kw = st.text_input(
+            "Expected keywords (comma/space separated)",
+            key="mile_new_kw",
+            placeholder="Research Memory, Pipeline",
+        )
+        if st.button("Add milestone", key="mile_add") and m_title.strip():
+            mid = repo.add_milestone(
+                project_id=project_id,
+                title=m_title.strip(),
+                due_date=m_due.strip(),
+                deliverable_type=m_type,
+                expected_keywords=m_kw.strip(),
+            )
+            st.success(f"Added milestone {mid[:8]}")
+            st.rerun()
+
+    timeline = project_timeline(project_id, repo=repo)
+    report = gap_report(project_id, repo=repo)
+    summary = report.get("summary") or {}
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Milestones", summary.get("milestones", 0))
+    m2.metric("Covered", summary.get("covered", 0))
+    m3.metric("Missing", summary.get("missing", 0))
+    m4.metric("Overdue", summary.get("overdue", 0))
+
+    st.markdown("### Gap report")
+    gaps = report.get("gaps") or []
+    if gaps:
+        st.dataframe(
+            [
+                {
+                    "title": g["title"],
+                    "due": g["due_date"],
+                    "type": g["deliverable_type"],
+                    "coverage": g["coverage"],
+                    "status": g["effective_status"],
+                    "matched": g["matched_filename"] or "-",
+                    "reason": g["match_reason"] or "-",
+                }
+                for g in gaps
+            ],
+            use_container_width=True,
+        )
+    else:
+        st.write("No milestones yet.")
+
+    c_a, c_b = st.columns(2)
+    if c_a.button("Auto-link covered milestones", key="mile_autolink"):
+        linked = auto_link_milestones(project_id, repo=repo)
+        st.success(f"updated={linked.get('updated')}")
+        st.rerun()
+
+    st.markdown("### Timeline")
+    for ev in timeline.get("events") or []:
+        st.markdown(
+            f"- `{ev.get('date') or 'n/a'}` · **{ev['kind']}** · {ev.get('title')} "
+            f"({ev.get('status')}/{ev.get('deliverable_type')})"
+        )
+
+    unlinked = report.get("orphan_documents") or []
+    if unlinked:
+        st.markdown("### Unlinked documents — no milestone match")
+        for d in unlinked:
+            st.write(f"- {d['filename']} · type={d.get('doc_type')} · {d.get('created_at', '')[:10]}")
 
 
 def _chat_tab() -> None:

@@ -79,6 +79,33 @@ class KnowledgeRepository:
                 CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks(document_id);
                 CREATE INDEX IF NOT EXISTS idx_facts_doc ON facts(document_id);
                 CREATE INDEX IF NOT EXISTS idx_docs_project ON documents(project_id);
+
+                CREATE TABLE IF NOT EXISTS projects (
+                    project_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    owner TEXT,
+                    start_date TEXT,
+                    end_date TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    notes TEXT,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS milestones (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    due_date TEXT,
+                    deliverable_type TEXT,
+                    expected_keywords TEXT,
+                    status TEXT NOT NULL DEFAULT 'planned',
+                    linked_document_id TEXT,
+                    notes TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(project_id) REFERENCES projects(project_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones(project_id);
                 """
             )
 
@@ -266,3 +293,163 @@ class KnowledgeRepository:
         if not self.index_path.exists():
             return []
         return TfidfIndex.load(self.index_path).search(query, top_k=top_k)
+
+    # --- Phase 4: projects / milestones (Tracking) ---
+
+    def upsert_project(
+        self,
+        *,
+        project_id: str,
+        title: str,
+        owner: str = "",
+        start_date: str = "",
+        end_date: str = "",
+        status: str = "active",
+        notes: str = "",
+    ) -> str:
+        project_id = project_id.strip()
+        if not project_id:
+            raise ValueError("project_id required")
+        with self._conn() as conn:
+            existing = conn.execute(
+                "SELECT project_id FROM projects WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE projects
+                    SET title=?, owner=?, start_date=?, end_date=?, status=?, notes=?
+                    WHERE project_id=?
+                    """,
+                    (title, owner, start_date, end_date, status, notes, project_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO projects (
+                        project_id, title, owner, start_date, end_date, status, notes, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        project_id,
+                        title,
+                        owner,
+                        start_date,
+                        end_date,
+                        status,
+                        notes,
+                        _utc_now(),
+                    ),
+                )
+        return project_id
+
+    def list_projects(self) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT p.*,
+                       (SELECT COUNT(*) FROM milestones m WHERE m.project_id = p.project_id) AS milestone_count,
+                       (SELECT COUNT(*) FROM documents d
+                        WHERE d.project_id = p.project_id AND d.status = 'ready') AS document_count
+                FROM projects p
+                ORDER BY p.created_at DESC
+                """
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_project(self, project_id: str) -> dict[str, Any] | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM projects WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def delete_project(self, project_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM milestones WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
+
+    def add_milestone(
+        self,
+        *,
+        project_id: str,
+        title: str,
+        due_date: str = "",
+        deliverable_type: str = "other",
+        expected_keywords: str = "",
+        status: str = "planned",
+        notes: str = "",
+        linked_document_id: str = "",
+    ) -> str:
+        mid = str(uuid.uuid4())
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO milestones (
+                    id, project_id, title, due_date, deliverable_type, expected_keywords,
+                    status, linked_document_id, notes, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    mid,
+                    project_id,
+                    title,
+                    due_date,
+                    deliverable_type,
+                    expected_keywords,
+                    status,
+                    linked_document_id or None,
+                    notes,
+                    _utc_now(),
+                ),
+            )
+        return mid
+
+    def update_milestone(self, milestone_id: str, **fields: Any) -> None:
+        allowed = {
+            "title",
+            "due_date",
+            "deliverable_type",
+            "expected_keywords",
+            "status",
+            "linked_document_id",
+            "notes",
+        }
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return
+        cols = ", ".join(f"{k}=?" for k in updates)
+        values = list(updates.values()) + [milestone_id]
+        with self._conn() as conn:
+            conn.execute(f"UPDATE milestones SET {cols} WHERE id=?", values)
+
+    def delete_milestone(self, milestone_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM milestones WHERE id = ?", (milestone_id,))
+
+    def list_milestones(self, project_id: str) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM milestones
+                WHERE project_id = ?
+                ORDER BY CASE WHEN due_date IS NULL OR due_date = '' THEN 1 ELSE 0 END,
+                         due_date ASC, created_at ASC
+                """,
+                (project_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def list_documents_for_project(self, project_id: str) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM documents
+                WHERE project_id = ? AND status = 'ready'
+                ORDER BY created_at ASC
+                """,
+                (project_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]

@@ -8,6 +8,11 @@ from research_memory.config import PROJECT_ROOT, ensure_data_dirs
 from research_memory.engine.chat import answer_question
 from research_memory.engine.proposal import run_proposal_pipeline
 from research_memory.engine.similarity import compare_kb_documents, compare_upload_vs_kb
+from research_memory.engine.tracking import (
+    auto_link_milestones,
+    gap_report,
+    seed_demo_project,
+)
 from research_memory.kb.repository import KnowledgeRepository
 from research_memory.pipeline.ingest import ingest_file
 
@@ -158,6 +163,23 @@ def cmd_proposal(args: argparse.Namespace) -> None:
     print(f"wrote {out}")
 
 
+def cmd_milestone(args: argparse.Namespace) -> None:
+    repo = KnowledgeRepository()
+    if args.seed:
+        print(json.dumps(seed_demo_project(repo=repo, project_id=args.project), ensure_ascii=False))
+        return
+    if args.autolink:
+        print(json.dumps(auto_link_milestones(args.project, repo=repo), ensure_ascii=False))
+        return
+    report = gap_report(args.project, repo=repo)
+    print(json.dumps(report.get("summary"), ensure_ascii=False))
+    for g in report.get("gaps") or []:
+        print(
+            f"- [{g['coverage']}/{g['effective_status']}] {g['title']} "
+            f"due={g['due_date'] or '-'} → {g['matched_filename'] or 'MISSING'}"
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="research-memory")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -191,6 +213,12 @@ def main() -> None:
     p_prop.add_argument("--role-index", type=int, default=0)
     p_prop.add_argument("--out", default="proposal_draft.md")
     p_prop.set_defaults(func=cmd_proposal)
+
+    p_mile = sub.add_parser("milestone", help="Project milestone gap report")
+    p_mile.add_argument("--project", default="DEMO-2026")
+    p_mile.add_argument("--seed", action="store_true", help="Seed demo project/milestones")
+    p_mile.add_argument("--autolink", action="store_true", help="Persist matched links")
+    p_mile.set_defaults(func=cmd_milestone)
 
     args = parser.parse_args()
     args.func(args)
