@@ -38,7 +38,7 @@ from research_memory.schema import Citation
 
 st.set_page_config(
     page_title="Research Memory Platform",
-    page_icon="🧠",
+    page_icon=str(ROOT / "assets" / "favicon.svg"),
     layout="wide",
 )
 
