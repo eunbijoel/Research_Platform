@@ -2,7 +2,7 @@
 
 **An Organizational Research Intelligence Platform**
 
-센터가 쌓아 온 연구 산출물을 **기억(Memory)** 하고, 그 근거로 다시 **쓰게(reuse)** 만드는 내부 도구입니다.
+과거 자료 기반의 지식베이스-> AI가 보관-이해-활용할 수 있도록 하는 시스템
 
 ### Goals
 
