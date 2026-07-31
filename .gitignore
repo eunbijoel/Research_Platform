@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/raw/
+data/kb/
+*.db
+.pytest_cache/
+.streamlit/secrets.toml
+*.egg-info/
+dist/
+build/
