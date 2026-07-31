@@ -2,107 +2,74 @@
 
 **An Organizational Research Intelligence Platform**
 
-> Memory가 핵심이고, Intelligence는 결과입니다.  
-> Phase 1–4: Pipeline → Metadata/Facts → Knowledge Base → Chat + Similarity + Proposal + Milestone
+센터가 쌓아 온 연구 산출물을 **기억(Memory)** 하고, 그 근거로 다시 **쓰게(reuse)** 만드는 내부 도구입니다.
 
-## Goals
+### Goals
 
-1. **Enable evidence-based reuse of organizational research assets**
-2. **Preserve and operationalize institutional research knowledge**
+1. Enable evidence-based reuse of organizational research assets
+2. Preserve and operationalize institutional research knowledge
 
-Non-goals (for now): Proposal / Milestone services, Catena-X/KMX, generic “center ChatGPT”.
+---
 
-## Architecture (Phase 1–4)
+## How it works
 
 ```
-Source Documents
-    ↓
-Document Intelligence Pipeline
-    ↓
+문서 업로드
+   ↓
+Document Intelligence (파싱 · 청킹)
+   ↓
 Metadata / Facts
-    ↓
-Knowledge Base
-    ↓
-AI Services
-  · Chat (Retrieval + Generation)
-  · Similarity (Retrieval + Reasoning)
-  · Proposal (RFP + KB → draft)
-  · Milestone (Tracking + gap report)
+   ↓
+Knowledge Base (Memory)
+   ↓
+서비스 탭에서 재사용
 ```
 
-## Location
+지원 형식: PDF, DOCX, TXT/MD, CSV, XLSX, HWPX
 
-Canonical project path (data disk):
+---
 
-```text
-/mnt/data/eunbi/research-memory
-```
+## UI tabs
 
-Convenience symlink: `/home/eunbi/research-memory` → same directory.
 
-## Quick start
+| Tab               | 하는 일                                                              |
+| ----------------- | ----------------------------------------------------------------- |
+| **Research Chat** | Memory에 질문. 답변마다 출처(파일·위치)를 붙입니다. 근거가 없으면 거절합니다.                  |
+| **Similarity**    | 새 문서 ↔ Memory (또는 문서끼리) 비슷한 문장을 찾습니다. 중복·재사용 검토용.                 |
+| **Proposal**      | RFP/공고문을 넣고, Memory 근거로 **우리 센터 파트 초안**을 만듭니다. 전체 제안서 자동완성이 아닙니다. |
+| **Milestone**     | 과제별 예정 산출물과 Memory 문서를 대조합니다. 빠진 것·기한 지난 것을 보여줍니다.                |
+| **Ingest**        | 문서를 Memory에 넣습니다. Project ID를 붙이면 과제 단위로 묶입니다.                    |
+| **Library**       | 인제스트된 문서 목록을 보고 삭제합니다.                                            |
+| **Facts**         | 문서에서 뽑힌 메타/Fact(과제명, 작성자, 수치 등)를 봅니다.                             |
+
+
+---
+
+## Run
 
 ```bash
 cd /mnt/data/eunbi/research-memory
-# or: cd ~/research-memory
-
-source .venv/bin/activate   # or use .venv/bin/python directly
-
-# seed demo corpus
-python -m research_memory.cli seed_demo
-
-# ask without UI
-python -m research_memory.cli chat "Research Memory의 핵심 원칙은?"
-
-# similarity: new file vs KB
-python -m research_memory.cli similarity ./demo/center_overview.md --project DEMO-2026
-
-# UI
 ./run_app.sh
 ```
 
-Browser: http://127.0.0.1:8505
+브라우저: [http://127.0.0.1:8505](http://127.0.0.1:8505)
 
-Optional LLM: run Ollama locally and set `RM_MODEL_NAME` (see `.env.example`).  
-If Ollama is offline, Chat still returns **extractive** answers with citations.
-
-## CLI
+데모 데이터가 필요하면:
 
 ```bash
-python -m research_memory.cli ingest ./demo --project DEMO-2026
-python -m research_memory.cli list
-python -m research_memory.cli chat "센터 역할은 무엇인가?"
-python -m research_memory.cli similarity ./demo/proposal_excerpt.md
-python -m research_memory.cli similarity --doc-a <id> --doc-b <id>
-python -m research_memory.cli proposal ./path/to/rfp.md --project DEMO-2026 --out proposal_draft.md
-python -m research_memory.cli milestone --project DEMO-2026 --seed
-python -m research_memory.cli milestone --project DEMO-2026
-python -m research_memory.cli milestone --project DEMO-2026 --autolink
+.venv/bin/python -m research_memory.cli seed_demo
+.venv/bin/python -m research_memory.cli milestone --seed
 ```
 
-## Supported ingest formats
+---
 
-PDF · DOCX · TXT/MD · CSV · XLSX · HWPX (best-effort XML)
-
-Legacy `.hwp` binary is deferred (reuse HWP_analyst backends later).
-
-## Layout
+## Project layout
 
 ```
+app.py                 UI
 research_memory/
-  pipeline/     # extract → chunk → metadata/facts → ingest
-  kb/           # sqlite + tf-idf index
-  engine/       # retrieval + chat + similarity
-app.py          # Streamlit UI
-demo/           # non-sensitive sample corpus
+  pipeline/            문서 파싱 · 메타/Fact · 인제스트
+  kb/                  Knowledge Base
+  engine/              Chat · Similarity · Proposal · Tracking
 ```
 
-## Phase map
-
-| Phase | Focus | Status |
-|-------|--------|--------|
-| **1** | Pipeline, Metadata/Facts, KB, Chat+citations | done |
-| **2** | Similarity service (upload↔KB / KB↔KB) | done |
-| **3** | Proposal service (RFP + KB → draft) | done |
-| **4** | Milestone / Tracking + gap report | done |
-| 5 | Ops hardening | next |
