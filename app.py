@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from research_memory.config import MODEL_NAME, MOCK_LLM, ensure_data_dirs
+from research_memory.config import EMBED_MODEL, MODEL_NAME, MOCK_LLM, ensure_data_dirs
 from research_memory.engine.chat import answer_question
 from research_memory.engine.llm import llm_available
 from research_memory.engine.proposal import (
@@ -62,8 +62,18 @@ def main() -> None:
         st.write(f"ready={ready} · failed={failed}")
         st.write(f"LLM: {'connected' if llm_available() else 'offline/extractive'}")
         st.write(f"model={MODEL_NAME}")
+        st.write(f"embed={EMBED_MODEL}")
+        rs = repo.retrieval_status()
+        st.write(
+            f"index: vector={'yes' if rs.get('vector_index') else 'no'} · "
+            f"tfidf={'yes' if rs.get('tfidf_index') else 'no'} · hybrid when both"
+        )
         if MOCK_LLM:
             st.warning("RM_MOCK_LLM=true")
+        if st.button("Rebuild retrieval index"):
+            with st.spinner("Embedding chunks…"):
+                n = repo.rebuild_index()
+            st.success(f"chunks={n} · {repo.last_index_status}")
         st.divider()
         st.markdown(
             "**Phase 1–4**\n"

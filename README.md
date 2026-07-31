@@ -27,6 +27,9 @@ Knowledge Base (Memory)
 
 지원 형식: PDF, DOCX, TXT/MD, CSV, XLSX, HWPX
 
+검색: Ollama 임베딩(`nomic-embed-text`) + TF-IDF를 **hybrid(RRF)** 로 결합.  
+임베딩이 안 되면 TF-IDF만 사용.
+
 ---
 
 ## UI tabs
@@ -59,6 +62,13 @@ cd /mnt/data/eunbi/research-memory
 ```bash
 .venv/bin/python -m research_memory.cli seed_demo
 .venv/bin/python -m research_memory.cli milestone --seed
+```
+
+검색 인덱스 재구축 / 평가:
+
+```bash
+.venv/bin/python -m research_memory.cli rebuild-index
+.venv/bin/python -m research_memory.cli eval --rebuild
 ```
 
 ---

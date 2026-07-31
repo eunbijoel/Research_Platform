@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from research_memory.config import DB_PATH, INDEX_PATH, ensure_data_dirs
-from research_memory.kb.index import TfidfIndex
+from research_memory.config import DB_PATH, INDEX_PATH, VECTOR_INDEX_PATH, ensure_data_dirs
+from research_memory.kb.embeddings import rebuild_retrieval_index, search_retrieval
 
 
 def _utc_now() -> str:
@@ -17,13 +17,15 @@ def _utc_now() -> str:
 
 
 class KnowledgeRepository:
-    """SQLite metadata/facts/chunks + TF-IDF retrieval index."""
+    """SQLite metadata/facts/chunks + vector (primary) / TF-IDF (fallback) index."""
 
     def __init__(self, db_path: Path | None = None, index_path: Path | None = None):
         ensure_data_dirs()
         self.db_path = Path(db_path or DB_PATH)
         self.index_path = Path(index_path or INDEX_PATH)
+        self.vector_index_path = VECTOR_INDEX_PATH
         self._init_db()
+        self.last_index_status: dict[str, Any] = {}
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -278,21 +280,25 @@ class KnowledgeRepository:
 
     def rebuild_index(self) -> int:
         chunks = self.iter_chunks()
-        if not chunks:
-            if self.index_path.exists():
-                self.index_path.unlink()
-            return 0
-        TfidfIndex().fit(chunks).save(self.index_path)
-        return len(chunks)
+        self.last_index_status = rebuild_retrieval_index(chunks)
+        return int(self.last_index_status.get("chunk_count") or 0)
 
     def search(self, query: str, top_k: int = 6) -> list[dict[str, Any]]:
         if not query.strip():
             return []
-        if not self.index_path.exists():
+        if not VECTOR_INDEX_PATH.exists() and not INDEX_PATH.exists():
             self.rebuild_index()
-        if not self.index_path.exists():
-            return []
-        return TfidfIndex.load(self.index_path).search(query, top_k=top_k)
+        hits, backend = search_retrieval(query, top_k=top_k, prefer_vector=True)
+        for h in hits:
+            h["retrieval_backend"] = backend
+        return hits
+
+    def retrieval_status(self) -> dict[str, Any]:
+        return {
+            "vector_index": VECTOR_INDEX_PATH.exists(),
+            "tfidf_index": INDEX_PATH.exists(),
+            "last_rebuild": self.last_index_status,
+        }
 
     # --- Phase 4: projects / milestones (Tracking) ---
 

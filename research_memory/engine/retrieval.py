@@ -11,8 +11,19 @@ def retrieve(
     repo: KnowledgeRepository | None = None,
     top_k: int = RETRIEVAL_TOP_K,
 ) -> list[Citation]:
+    citations, _backend = retrieve_with_backend(query, repo=repo, top_k=top_k)
+    return citations
+
+
+def retrieve_with_backend(
+    query: str,
+    *,
+    repo: KnowledgeRepository | None = None,
+    top_k: int = RETRIEVAL_TOP_K,
+) -> tuple[list[Citation], str]:
     repo = repo or KnowledgeRepository()
     hits = repo.search(query, top_k=top_k)
+    backend = str(hits[0].get("retrieval_backend", "none")) if hits else "none"
     citations: list[Citation] = []
     for hit in hits:
         snippet = hit["text"].strip()
@@ -27,4 +38,4 @@ def retrieve(
                 score=float(hit.get("score") or 0.0),
             )
         )
-    return citations
+    return citations, backend

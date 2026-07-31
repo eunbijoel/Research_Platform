@@ -13,6 +13,7 @@ from research_memory.engine.tracking import (
     gap_report,
     seed_demo_project,
 )
+from research_memory.eval_retrieval import evaluate_retrieval
 from research_memory.kb.repository import KnowledgeRepository
 from research_memory.pipeline.ingest import ingest_file
 
@@ -180,6 +181,34 @@ def cmd_milestone(args: argparse.Namespace) -> None:
         )
 
 
+def cmd_rebuild_index(_: argparse.Namespace) -> None:
+    repo = KnowledgeRepository()
+    n = repo.rebuild_index()
+    print(json.dumps({"chunks": n, **repo.retrieval_status()}, ensure_ascii=False))
+
+
+def cmd_eval(args: argparse.Namespace) -> None:
+    repo = KnowledgeRepository()
+    if args.rebuild:
+        repo.rebuild_index()
+    result = evaluate_retrieval(repo=repo, top_k=args.top_k)
+    summary = {
+        "n": result["n"],
+        "top_k": result["top_k"],
+        "recall_at_k": round(result["recall_at_k"], 3),
+        "mrr": round(result["mrr"], 3),
+        "hits": result["hits"],
+        "index": result["index"],
+    }
+    print(json.dumps(summary, ensure_ascii=False))
+    for row in result["rows"]:
+        mark = "OK" if row["hit"] else "MISS"
+        print(
+            f"[{mark}] {row['id']} backend={row['backend']} rank={row['rank']} "
+            f"got={row['retrieved_files'][:3]}"
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="research-memory")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -219,6 +248,14 @@ def main() -> None:
     p_mile.add_argument("--seed", action="store_true", help="Seed demo project/milestones")
     p_mile.add_argument("--autolink", action="store_true", help="Persist matched links")
     p_mile.set_defaults(func=cmd_milestone)
+
+    p_re = sub.add_parser("rebuild-index", help="Rebuild vector + TF-IDF retrieval indexes")
+    p_re.set_defaults(func=cmd_rebuild_index)
+
+    p_eval = sub.add_parser("eval", help="Run retrieval evaluation on gold QA set")
+    p_eval.add_argument("--top-k", type=int, default=5)
+    p_eval.add_argument("--rebuild", action="store_true")
+    p_eval.set_defaults(func=cmd_eval)
 
     args = parser.parse_args()
     args.func(args)
