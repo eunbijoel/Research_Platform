@@ -135,10 +135,29 @@ class KnowledgeRepository:
     def get_document(self, document_id: str) -> dict[str, Any] | None:
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM documents WHERE id = ?",
+                """
+                SELECT d.*,
+                       (SELECT COUNT(*) FROM chunks c WHERE c.document_id = d.id) AS chunk_count,
+                       (SELECT COUNT(*) FROM facts f WHERE f.document_id = d.id) AS fact_count
+                FROM documents d
+                WHERE d.id = ?
+                """,
                 (document_id,),
             ).fetchone()
             return dict(row) if row else None
+
+    def list_chunks(self, document_id: str) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT id AS chunk_id, document_id, chunk_index, location, page, text
+                FROM chunks
+                WHERE document_id = ?
+                ORDER BY chunk_index ASC
+                """,
+                (document_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def delete_document(self, document_id: str) -> None:
         with self._conn() as conn:

@@ -57,60 +57,40 @@ def cmd_seed_demo(_: argparse.Namespace) -> None:
     ensure_data_dirs()
     demo_dir = PROJECT_ROOT / "demo"
     demo_dir.mkdir(exist_ok=True)
-    samples = {
-        "center_overview.md": """# KETI 소프트웨어센터 연구 개요 (데모)
 
-과제명: 산업 데이터 스페이스 연계형 Research Memory
-작성자: 조은비
-연도: 2026
-
-## 목적
-센터가 축적한 제안서, 연구노트, 논문, 회의록을 근거 기반으로 재사용하는
-Research Memory Platform을 구축한다.
-
-## 핵심 원칙
-1. Evidence-based reuse of organizational research assets
-2. Preserve and operationalize institutional research knowledge
-3. Assistant 기능이 아니라 Memory가 제품의 핵심이다.
-
-## 예산 메모
-1차 연도 예산: 120,000,000원
-""",
-        "proposal_excerpt.md": """# 제안서 발췌 (데모)
-
-과제명: Manufacturing-X 연계 문서 지능
-작성자: 소프트웨어센터
-2025
-
-## 센터 역할
-본 센터는 HWP/PDF 문서 파싱, 유사도 분석, 제안서 초안 생성 도구를
-통합하여 Research Memory Engine(Retrieval, Reasoning, Generation, Tracking)을 제공한다.
-
-## 산출물
-- Document Intelligence Pipeline
-- Metadata / Facts 계층
-- Knowledge Base
-- AI Services: Chat, Similarity, Proposal, Milestone
-""",
-        "meeting_note.md": """# 회의록 (데모)
-
-작성자: 연구지원
-일시: 2026-07-15
-
-## 안건
-Research Memory Phase 1 범위 확정
-
-## 결정
-- Phase 1은 Chat(인용 강제)까지
-- Catena-X / KMX는 별 제품 라인
-- 기술 스택 세부는 Appendix로 보고
-""",
+    project_by_file = {
+        "center_overview.md": "DEMO-2026",
+        "proposal_excerpt.md": "DEMO-2026",
+        "meeting_note.md": "DEMO-2026",
+        "ald_process_note.md": "ALD-2024",
+        "ald_annual_report.md": "ALD-2024",
+        "meeting_ald_hwp.md": "ALD-2024",
+        "hwp_analyst_design.md": "HWP-ANALYST-2025",
+        "hwp_analyst_trial.md": "HWP-ANALYST-2025",
+        "kmx_concept_note.md": "KMX-2025",
+        "max_integration_survey.md": "MAX-2026",
+        "rm_proposal_2026.md": "RM-PROPOSAL-2026",
+        "proposal_intel_note.md": "RM-PROPOSAL-2026",
     }
+
+    # Fallback inline bodies for the original 3 if files missing
+    fallback = {
+        "center_overview.md": """# KETI 소프트웨어센터 연구 개요 (데모)\n\n과제명: 산업 데이터 스페이스 연계형 Research Memory\n""",
+        "proposal_excerpt.md": """# 제안서 발췌 (데모)\n\n과제명: Manufacturing-X 연계 문서 지능\n""",
+        "meeting_note.md": """# 회의록 (데모)\n\nPhase 1은 Chat(인용 강제)까지\n""",
+    }
+
     repo = KnowledgeRepository()
-    for name, body in samples.items():
+    for name, project_id in project_by_file.items():
         path = demo_dir / name
-        path.write_text(body, encoding="utf-8")
-        result = ingest_file(path, repo=repo, project_id="DEMO-2026")
+        if not path.exists():
+            if name in fallback:
+                path.write_text(fallback[name], encoding="utf-8")
+            else:
+                print(json.dumps({"ok": False, "file": name, "error": "missing"}, ensure_ascii=False))
+                continue
+        result = ingest_file(path, repo=repo, project_id=project_id)
+        result["project_id"] = project_id
         print(json.dumps(result, ensure_ascii=False))
 
 
