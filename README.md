@@ -13,16 +13,41 @@
 
 ## How it works
 
-```
-문서 업로드
-   ↓
-Document Intelligence (파싱 · 청킹)
-   ↓
-Metadata / Facts
-   ↓
-Knowledge Base (Memory)
-   ↓
-서비스 탭에서 재사용
+```mermaid
+flowchart TB
+  subgraph Users["Users / Center"]
+    U[Researchers]
+  end
+
+  subgraph Ingest["Write · keep Memory fresh"]
+    UP[Upload docs]
+    DI[Document Intelligence<br/>parse · chunk · facts]
+    UP --> DI
+  end
+
+  subgraph MemoryCloud["Knowledge Base · Memory<br/>persistent organizational storage"]
+    KB[(Research Memory)]
+    IDX[Hybrid Index<br/>Embed + TF-IDF]
+    KB --- IDX
+  end
+
+  subgraph Use["Read · reuse with evidence"]
+    LIB[Library explore]
+    CHAT[Research Chat]
+    EVI[Top evidence]
+    ANS[Grounded answer]
+    CHAT --> EVI --> ANS
+  end
+
+  U --> UP
+  DI -->|update / append| KB
+  U --> LIB
+  U --> CHAT
+  LIB -->|browse| KB
+  CHAT -->|retrieve| IDX
+  IDX --> KB
+
+  ANS -.->|new drafts / notes can return| UP
 ```
 
 지원 형식: PDF, DOCX, TXT/MD, CSV, XLSX, HWPX
