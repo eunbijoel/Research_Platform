@@ -234,17 +234,6 @@ def build_research_note_docx(rows: Sequence[tuple[str, str]], *, title: str = "�
     return buf.getvalue()
 
 
-def build_docx_from_text(text: str) -> bytes:
-    from docx import Document
-
-    d = Document()
-    for ln in (text or "").splitlines() or [" "]:
-        d.add_paragraph(ln)
-    buf = io.BytesIO()
-    d.save(buf)
-    return buf.getvalue()
-
-
 def build_research_note_hwpx(rows: Sequence[tuple[str, str]], *, title: str = "연구노트") -> bytes:
     """Optional HWPX export when python-hwpx is installed."""
     from hwpx import HwpxDocument  # type: ignore

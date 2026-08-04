@@ -59,7 +59,6 @@ DRAFT_LABELS = {
 
 def parse_rfp_bytes(data: bytes, filename: str) -> tuple[list[dict[str, str]], str]:
     """Extract citeable RFP chunks from an uploaded file."""
-    from hashlib import sha256
     from pathlib import Path
     import tempfile
 

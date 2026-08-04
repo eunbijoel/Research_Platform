@@ -42,14 +42,6 @@ def embed_query(text: str, *, model: str | None = None) -> list[float]:
     return vecs[0]
 
 
-def embeddings_available(*, model: str | None = None) -> bool:
-    try:
-        embed_texts(["ping"], model=model)
-        return True
-    except EmbeddingError:
-        return False
-
-
 def _embed_batch(texts: list[str], *, model: str) -> list[list[float]]:
     url = f"{OLLAMA_BASE_URL.rstrip('/')}/api/embed"
     payload = {"model": model, "input": texts}
