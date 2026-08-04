@@ -472,6 +472,7 @@ def _library_project_docs_view(docs: list, project_id: str) -> None:
         group = [d for d in docs if (d.get("project_id") or "").strip() == project_id]
 
     st.caption(f"{len(group)} documents in this project")
+    group = _sort_documents(group, key_prefix=f"proj-{project_id}")
     _library_doc_list(group, key_prefix=f"proj-{project_id}")
 
 
@@ -493,7 +494,7 @@ def _library_search_view(docs: list) -> None:
     )
     statuses = sorted({(d.get("status") or "").strip() for d in docs if d.get("status")})
 
-    f1, f2, f3, f4 = st.columns(4)
+    f1, f2, f3, f4, f5 = st.columns([1.3, 1.3, 1.0, 1.0, 2.2])
     type_f = f1.selectbox("Type", ["All"] + types, key="lib_type")
     proj_options = ["All"] + projects
     if st.session_state.get("lib_project") not in proj_options:
@@ -501,6 +502,13 @@ def _library_search_view(docs: list) -> None:
     project_f = f2.selectbox("Project", proj_options, key="lib_project")
     year_f = f3.selectbox("Year", ["All"] + years, key="lib_year")
     status_f = f4.selectbox("Status", ["All"] + statuses, key="lib_status")
+
+    with f5:
+        _render_sort_controls(
+            field_key="search_sort_field",
+            dir_key="search_sort_desc",
+            btn_key="search_sort_dir_btn",
+        )
 
     filtered = _filter_documents(
         docs,
@@ -516,7 +524,67 @@ def _library_search_view(docs: list) -> None:
         st.warning("No documents match these filters.")
         return
 
+    filtered = _apply_sort(
+        filtered,
+        field=st.session_state.search_sort_field,
+        descending=bool(st.session_state.search_sort_desc),
+    )
     _library_doc_list(filtered, key_prefix="search")
+
+
+def _render_sort_controls(*, field_key: str, dir_key: str, btn_key: str) -> None:
+    """Sort-by select + tiny ▲/▼ on one visual row (aligned with selectbox input)."""
+    if field_key not in st.session_state:
+        st.session_state[field_key] = "Date"
+    if dir_key not in st.session_state:
+        st.session_state[dir_key] = True
+
+    left, right = st.columns([5, 1])
+    left.selectbox("Sort by", ["Date", "Title", "Type", "Project", "Year"], key=field_key)
+    # push button down to the selectbox input (below the label)
+    right.markdown(
+        "<div style='height:29px;line-height:29px;font-size:12px;color:transparent;'>.</div>",
+        unsafe_allow_html=True,
+    )
+    desc = bool(st.session_state[dir_key])
+    if right.button(
+        "▼" if desc else "▲",
+        key=btn_key,
+        help="▼ newest/Z→A · ▲ oldest/A→Z",
+    ):
+        st.session_state[dir_key] = not desc
+        st.rerun()
+
+
+def _sort_documents(docs: list, *, key_prefix: str) -> list:
+    """Sort controls for project doc lists."""
+    field_key = f"{key_prefix}_sort_field"
+    dir_key = f"{key_prefix}_sort_desc"
+    btn_key = f"{key_prefix}_sort_dir_btn"
+    _render_sort_controls(field_key=field_key, dir_key=dir_key, btn_key=btn_key)
+    return _apply_sort(
+        docs,
+        field=st.session_state[field_key],
+        descending=bool(st.session_state[dir_key]),
+    )
+
+
+def _apply_sort(docs: list, *, field: str, descending: bool) -> list:
+    def sort_key(d: dict):
+        if field == "Date":
+            return str(d.get("created_at") or "")
+        if field == "Title":
+            return (d.get("title") or d.get("filename") or "").lower()
+        if field == "Type":
+            return (d.get("doc_type") or "").lower()
+        if field == "Project":
+            return (d.get("project_id") or "").lower()
+        if field == "Year":
+            y = d.get("year")
+            return int(y) if y is not None else -1
+        return ""
+
+    return sorted(docs, key=sort_key, reverse=descending)
 
 
 def _library_doc_list(docs: list, *, key_prefix: str) -> None:
