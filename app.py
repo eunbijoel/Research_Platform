@@ -600,7 +600,15 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
         f"{doc.get('status')}"
     )
 
-    tab_sum, tab_preview, tab_related = st.tabs(["Summary", "Preview", "Related"])
+    tab_preview, tab_sum, tab_related = st.tabs(["Preview", "Summary", "Related"])
+
+    with tab_preview:
+        text = (doc.get("full_text") or "").strip()
+        if not text:
+            st.caption("미리볼 텍스트가 없습니다.")
+        else:
+            st.text(text)
+            st.caption(f"{len(text):,} characters")
 
     with tab_sum:
         st.caption("원문은 Preview에서 보세요.")
@@ -628,14 +636,6 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
             st.session_state.pop("library_selected_id", None)
             st.session_state.pop(cache_key, None)
             st.rerun()
-
-    with tab_preview:
-        text = (doc.get("full_text") or "").strip()
-        if not text:
-            st.caption("미리볼 텍스트가 없습니다.")
-        else:
-            st.text(text)
-            st.caption(f"{len(text):,} characters")
 
     with tab_related:
         related = _related_documents(doc, all_docs)
