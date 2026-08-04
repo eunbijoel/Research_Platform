@@ -333,15 +333,15 @@ def _home_page() -> None:
 
 def _library_page() -> None:
     st.title("Library")
-    st.caption("Explore the center’s research memory — not just files.")
-
-    focus_upload = bool(st.session_state.pop("library_focus_upload", False))
-    with st.expander("Upload Documents", expanded=focus_upload):
-        _upload_panel()
+    st.caption("Browse research by project — then upload or search documents.")
 
     docs = repo.list_documents()
+    focus_upload = bool(st.session_state.pop("library_focus_upload", False))
+
     if not docs:
-        st.info("Memory is empty. Upload documents, or load the demo dataset from Home.")
+        st.info("Memory is empty. Upload documents below, or load the demo dataset from Home.")
+        with st.expander("Upload Documents", expanded=True):
+            _upload_panel()
         return
 
     selected_id = st.session_state.get("library_selected_id")
@@ -349,7 +349,134 @@ def _library_page() -> None:
         _document_detail(selected_id, docs)
         return
 
-    st.markdown("### Browse")
+    if "library_view" not in st.session_state:
+        st.session_state.library_view = "projects"
+
+    view = st.session_state.library_view
+
+    if view == "search":
+        if st.button("← Projects", key="lib_to_projects"):
+            st.session_state.library_view = "projects"
+            st.session_state.pop("library_project_focus", None)
+            st.rerun()
+        _library_search_view(docs)
+        return
+
+    if view == "project_docs":
+        if st.button("← Projects", key="lib_to_projects_from_docs"):
+            st.session_state.library_view = "projects"
+            st.session_state.pop("library_project_focus", None)
+            st.rerun()
+        pid = st.session_state.get("library_project_focus") or ""
+        _library_project_docs_view(docs, pid)
+        return
+
+    # Default: Projects on top, then Upload + Search
+    _library_projects_view(docs)
+
+    st.markdown("---")
+    st.markdown("### Upload")
+    with st.expander("Upload Documents", expanded=focus_upload):
+        _upload_panel()
+
+    st.markdown("### Search")
+    if st.button("Search documents", type="primary", use_container_width=True, key="lib_to_search"):
+        st.session_state.library_view = "search"
+        st.rerun()
+    st.caption("Search and filter across all documents in Memory.")
+
+
+def _library_projects_view(docs: list) -> None:
+    st.markdown("### Projects")
+    st.caption("Open a project to see its documents in Memory.")
+
+    groups = _group_docs_by_project(docs)
+    items = sorted(
+        groups.items(),
+        key=lambda kv: (-len(kv[1]), kv[0]),
+    )
+
+    # 3-column compact card grid
+    for i in range(0, len(items), 3):
+        cols = st.columns(3)
+        for j, col in enumerate(cols):
+            if i + j >= len(items):
+                break
+            pid, group = items[i + j]
+            with col:
+                _project_card(pid, group)
+
+
+def _project_card(project_id: str, docs: list) -> None:
+    years = sorted({str(d.get("year")) for d in docs if d.get("year") is not None})
+    latest = max((str(d.get("created_at") or "") for d in docs), default="")[:10]
+    year_s = "–".join([years[0], years[-1]]) if len(years) > 1 else (years[0] if years else "—")
+
+    note_n = sum(
+        1
+        for d in docs
+        if (d.get("doc_type") or "").lower() in {"note", "research_note"}
+        or str(d.get("filename") or "").startswith("research_note_")
+        or "연구노트" in str(d.get("title") or "")
+    )
+    doc_n = len(docs)
+
+    st.markdown(
+        f"""
+<div style="
+  border:1px solid #d9dde3; border-radius:10px; padding:12px 12px 8px;
+  background:#fff; margin-bottom:4px;">
+  <div style="font-size:16px;font-weight:700;margin:0 0 8px;color:#111827;">{_html_esc(project_id)}</div>
+  <div style="font-size:13px;color:#374151;line-height:1.55;">
+    자료 <b>{doc_n}</b>건 | 연구노트 <b>{note_n}</b>개<br/>
+    years {_html_esc(year_s)}<br/>
+    updated {_html_esc(latest or '—')}
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    b1, b2 = st.columns(2)
+    if b1.button("Open", key=f"proj-open-{project_id}", use_container_width=True, type="primary"):
+        st.session_state.library_view = "project_docs"
+        st.session_state.library_project_focus = project_id
+        st.rerun()
+    if b2.button("Search", key=f"proj-search-{project_id}", use_container_width=True):
+        st.session_state.library_view = "search"
+        st.session_state.lib_project = project_id
+        st.rerun()
+
+
+def _html_esc(text: str) -> str:
+    return escape(str(text or ""))
+
+
+def _group_docs_by_project(docs: list) -> dict[str, list]:
+    groups: dict[str, list] = {}
+    for d in docs:
+        pid = (d.get("project_id") or "").strip() or "(No project)"
+        groups.setdefault(pid, []).append(d)
+    return groups
+
+
+def _library_project_docs_view(docs: list, project_id: str) -> None:
+    if not project_id:
+        st.session_state.library_view = "projects"
+        st.rerun()
+        return
+
+    st.markdown(f"### {project_id}")
+    if project_id == "(No project)":
+        group = [d for d in docs if not (d.get("project_id") or "").strip()]
+    else:
+        group = [d for d in docs if (d.get("project_id") or "").strip() == project_id]
+
+    st.caption(f"{len(group)} documents in this project")
+    _library_doc_list(group, key_prefix=f"proj-{project_id}")
+
+
+def _library_search_view(docs: list) -> None:
+    st.markdown("### Search")
     q = st.text_input(
         "Search Memory",
         placeholder="Search by title, filename, project, type…",
@@ -368,7 +495,10 @@ def _library_page() -> None:
 
     f1, f2, f3, f4 = st.columns(4)
     type_f = f1.selectbox("Type", ["All"] + types, key="lib_type")
-    project_f = f2.selectbox("Project", ["All"] + projects, key="lib_project")
+    proj_options = ["All"] + projects
+    if st.session_state.get("lib_project") not in proj_options:
+        st.session_state.lib_project = "All"
+    project_f = f2.selectbox("Project", proj_options, key="lib_project")
     year_f = f3.selectbox("Year", ["All"] + years, key="lib_year")
     status_f = f4.selectbox("Status", ["All"] + statuses, key="lib_status")
 
@@ -380,40 +510,29 @@ def _library_page() -> None:
         year=None if year_f == "All" else year_f,
         status=None if status_f == "All" else status_f,
     )
-    st.write(f"Showing **{len(filtered)}** of {len(docs)} documents")
 
+    st.caption(f"{len(filtered)} results")
     if not filtered:
         st.warning("No documents match these filters.")
         return
 
-    rows = [
-        {
-            "Title": d.get("title") or d["filename"],
-            "File": d["filename"],
-            "Type": d.get("doc_type") or "—",
-            "Project": d.get("project_id") or "—",
-            "Year": d.get("year") or "—",
-            "Chunks": d.get("chunk_count", 0),
-            "Status": d.get("status"),
-            "Date": str(d.get("created_at") or "")[:10],
-            "_id": d["id"],
-        }
-        for d in filtered
-    ]
-    st.dataframe(
-        [{k: v for k, v in r.items() if k != "_id"} for r in rows],
-        use_container_width=True,
-        hide_index=True,
-    )
+    _library_doc_list(filtered, key_prefix="search")
 
-    labels = {
-        f"{r['Title']} · {r['Project']} · {r['Date']}": r["_id"] for r in rows
-    }
-    choice = st.selectbox("Open document", list(labels.keys()), key="lib_open_select")
-    c1, c2 = st.columns([1, 4])
-    if c1.button("Open detail", type="primary", use_container_width=True):
-        st.session_state.library_selected_id = labels[choice]
-        st.rerun()
+
+def _library_doc_list(docs: list, *, key_prefix: str) -> None:
+    """Inline openable document rows — no separate Open dropdown."""
+    for d in docs:
+        title = d.get("title") or d["filename"]
+        meta = (
+            f"`{d['filename']}` · {d.get('doc_type') or '—'} · "
+            f"{d.get('project_id') or '—'} · {d.get('year') or '—'} · "
+            f"{d.get('status')} · {str(d.get('created_at') or '')[:10]}"
+        )
+        c1, c2 = st.columns([5, 1])
+        c1.markdown(f"**{title}**  \n{meta}")
+        if c2.button("Open", key=f"{key_prefix}-open-{d['id']}", use_container_width=True):
+            st.session_state.library_selected_id = d["id"]
+            st.rerun()
 
 
 def _filter_documents(
@@ -460,8 +579,11 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
         return
 
     top = st.columns([1, 4])
-    if top[0].button("← Back to Library", use_container_width=True):
+    if top[0].button("← Back", use_container_width=True):
         st.session_state.pop("library_selected_id", None)
+        # stay in project/search context if set
+        if not st.session_state.get("library_view"):
+            st.session_state.library_view = "projects"
         st.rerun()
     if top[1].button("Ask about this in Chat", use_container_width=True):
         title = doc.get("title") or doc["filename"]
