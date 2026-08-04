@@ -668,10 +668,7 @@ def _chat_page() -> None:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if msg.get("citations"):
-                with st.expander(
-                    f"왜 이 답인지 · Evidence ({len(msg['citations'])})",
-                    expanded=False,
-                ):
+                with st.expander("Evidence", expanded=False):
                     _render_evidence(msg["citations"])
 
     question = st.session_state.pop("_pending_question", None) or st.chat_input(
@@ -690,10 +687,7 @@ def _chat_page() -> None:
         cites = [c.to_dict() for c in result.citations]
         st.markdown(result.answer)
         if cites:
-            with st.expander(
-                f"왜 이 답인지 · Evidence ({len(cites)})",
-                expanded=False,
-            ):
+            with st.expander("Evidence", expanded=False):
                 _render_evidence(cites)
         st.caption(f"mode={result.mode} · refused={result.refused}")
         st.session_state.messages.append(
