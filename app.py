@@ -638,7 +638,7 @@ def _upload_panel() -> None:
 
 def _chat_page() -> None:
     st.title("Research Chat")
-    st.caption("Evidence first, then answer. No evidence → no answer.")
+    st.caption("답변 후, 근거(Evidence)는 펼쳐서 확인합니다. 근거 없으면 답하지 않습니다.")
 
     docs = [d for d in repo.list_documents() if d.get("status") == "ready"]
     if not docs:
@@ -668,7 +668,10 @@ def _chat_page() -> None:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if msg.get("citations"):
-                with st.expander("Evidence", expanded=False):
+                with st.expander(
+                    f"왜 이 답인지 · Evidence ({len(msg['citations'])})",
+                    expanded=False,
+                ):
                     _render_evidence(msg["citations"])
 
     question = st.session_state.pop("_pending_question", None) or st.chat_input(
@@ -682,14 +685,16 @@ def _chat_page() -> None:
         st.markdown(question)
 
     with st.chat_message("assistant"):
-        with st.spinner("Retrieving evidence from Memory…"):
+        with st.spinner("Memory에서 근거를 찾는 중…"):
             result = answer_question(question, repo=repo)
         cites = [c.to_dict() for c in result.citations]
-        if cites:
-            st.markdown("#### Top evidence")
-            _render_evidence(cites)
-            st.markdown("#### Answer")
         st.markdown(result.answer)
+        if cites:
+            with st.expander(
+                f"왜 이 답인지 · Evidence ({len(cites)})",
+                expanded=False,
+            ):
+                _render_evidence(cites)
         st.caption(f"mode={result.mode} · refused={result.refused}")
         st.session_state.messages.append(
             {
