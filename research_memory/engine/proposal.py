@@ -12,7 +12,7 @@ from research_memory.engine.llm import LLMConnectionError, generate_text, llm_av
 from research_memory.engine.retrieval import retrieve
 from research_memory.kb.repository import KnowledgeRepository
 from research_memory.pipeline.chunking import refine_chunks
-from research_memory.pipeline.extractors import extract_chunks
+from research_memory.pipeline.extractors import extract_chunks_from_bytes
 from research_memory.schema import Citation
 
 NOT_FOUND = "확인 필요"
@@ -59,26 +59,16 @@ DRAFT_LABELS = {
 
 def parse_rfp_bytes(data: bytes, filename: str) -> tuple[list[dict[str, str]], str]:
     """Extract citeable RFP chunks from an uploaded file."""
-    from pathlib import Path
-    import tempfile
-
-    suffix = Path(filename).suffix or ".bin"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(data)
-        path = Path(tmp.name)
-    try:
-        _ftype, raw, err = extract_chunks(path)
-        if err and not raw:
-            return [], err
-        chunks = refine_chunks(raw)
-        out = [
-            {"file": filename, "location": c.location, "text": c.text}
-            for c in chunks
-            if c.text.strip()
-        ]
-        return out, "" if out else (err or "No text extracted from RFP")
-    finally:
-        path.unlink(missing_ok=True)
+    _ftype, raw, err = extract_chunks_from_bytes(data, filename)
+    if err and not raw:
+        return [], err
+    chunks = refine_chunks(raw)
+    out = [
+        {"file": filename, "location": c.location, "text": c.text}
+        for c in chunks
+        if c.text.strip()
+    ]
+    return out, "" if out else (err or "No text extracted from RFP")
 
 
 def analyze_rfp(rfp_chunks: list[dict[str, str]]) -> dict[str, Any]:

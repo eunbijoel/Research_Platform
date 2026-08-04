@@ -109,6 +109,20 @@ def _go(page: str, *, focus_upload: bool = False, doc_id: str | None = None) -> 
     st.rerun()
 
 
+def _citation_from_dict(payload: dict) -> Citation:
+    return Citation(
+        document_id=str(payload.get("document_id", "")),
+        filename=str(payload.get("filename", "")),
+        location=str(payload.get("location", "")),
+        snippet=str(payload.get("snippet", "")),
+        score=float(payload.get("score") or 0.0),
+    )
+
+
+def _citations_from_dicts(items: list[dict]) -> list[Citation]:
+    return [_citation_from_dict(item) for item in items]
+
+
 def _kb_stats() -> dict:
     docs = repo.list_documents()
     projects = repo.list_projects()
@@ -1554,16 +1568,7 @@ def _proposal_panel() -> None:
 
     if st.button("Generate center draft", type="primary", disabled=not selected):
         with st.spinner("Generating draft from Memory evidence…"):
-            cites = [
-                Citation(
-                    document_id=c["document_id"],
-                    filename=c["filename"],
-                    location=c["location"],
-                    snippet=c["snippet"],
-                    score=float(c["score"]),
-                )
-                for c in evidence_dicts
-            ]
+            cites = _citations_from_dicts(evidence_dicts)
             draft = generate_draft(rfp, selected, cites)
             st.session_state["prop_draft"] = draft
             st.session_state["prop_selected"] = selected
@@ -1581,16 +1586,7 @@ def _proposal_panel() -> None:
         ):
             st.markdown(f"**{label}**")
             st.write(draft.get(key, ""))
-        cites = [
-            Citation(
-                document_id=c["document_id"],
-                filename=c["filename"],
-                location=c["location"],
-                snippet=c["snippet"],
-                score=float(c["score"]),
-            )
-            for c in evidence_dicts
-        ]
+        cites = _citations_from_dicts(evidence_dicts)
         md = build_markdown(rfp, selected, draft, cites)
         st.download_button("Download Markdown", md, file_name="proposal_draft.md")
         docx_bytes = export_docx_bytes(rfp, selected, draft)

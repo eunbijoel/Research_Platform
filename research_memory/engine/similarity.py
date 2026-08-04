@@ -8,7 +8,7 @@ from typing import Any, Iterable
 from research_memory.kb.index import TfidfIndex, tokenize
 from research_memory.kb.repository import KnowledgeRepository
 from research_memory.pipeline.chunking import refine_chunks
-from research_memory.pipeline.extractors import extract_chunks
+from research_memory.pipeline.extractors import extract_chunks_from_bytes
 from research_memory.schema import TextChunk
 
 _SENT_SPLIT = re.compile(r"(?<=[.!?。！？\n])\s+|(?<=다\.)\s+|(?<=요\.)\s+")
@@ -108,29 +108,20 @@ def units_from_kb_document(repo: KnowledgeRepository, document_id: str) -> list[
 def units_from_file_bytes(data: bytes, filename: str) -> tuple[list[Unit], str]:
     """Parse upload bytes into compare units. Returns (units, error)."""
     from hashlib import sha256
-    from pathlib import Path
-    import tempfile
 
     digest = sha256(data).hexdigest()[:12]
-    suffix = Path(filename).suffix or ".bin"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(data)
-        path = Path(tmp.name)
-    try:
-        _ftype, raw, err = extract_chunks(path)
-        if err and not raw:
-            return [], err
-        chunks = refine_chunks(raw)
-        units = units_from_chunks(
-            chunks,
-            document_id=f"upload:{digest}",
-            filename=filename,
-        )
-        if not units:
-            return [], err or "No comparable text extracted"
-        return units, ""
-    finally:
-        path.unlink(missing_ok=True)
+    _ftype, raw, err = extract_chunks_from_bytes(data, filename)
+    if err and not raw:
+        return [], err
+    chunks = refine_chunks(raw)
+    units = units_from_chunks(
+        chunks,
+        document_id=f"upload:{digest}",
+        filename=filename,
+    )
+    if not units:
+        return [], err or "No comparable text extracted"
+    return units, ""
 
 
 def compare_unit_sets(

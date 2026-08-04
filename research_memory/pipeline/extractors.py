@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import tempfile
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -46,6 +47,18 @@ def extract_chunks(path: Path) -> tuple[str, list[TextChunk], str]:
         return "unknown", [], f"Unsupported extension: {ext}"
     except Exception as exc:  # noqa: BLE001 — surface parse failures to ingest
         return ext.lstrip(".") or "unknown", [], str(exc)
+
+
+def extract_chunks_from_bytes(data: bytes, filename: str) -> tuple[str, list[TextChunk], str]:
+    """Extract chunks from uploaded file bytes using extension inferred from filename."""
+    suffix = Path(filename).suffix or ".bin"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(data)
+        temp_path = Path(tmp.name)
+    try:
+        return extract_chunks(temp_path)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def _pdf(path: Path) -> list[TextChunk]:
