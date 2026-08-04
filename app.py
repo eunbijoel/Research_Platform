@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime
+from datetime import date, datetime
+from html import escape
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
@@ -21,7 +23,22 @@ from research_memory.config import (
     ensure_data_dirs,
 )
 from research_memory.engine.chat import answer_question
-from research_memory.engine.llm import LLMConnectionError, generate_text, llm_available
+from research_memory.engine.llm import (
+    LLMConnectionError,
+    generate_text,
+    get_active_model,
+    list_ollama_models,
+    set_active_model,
+)
+from research_memory.engine.research_note import (
+    build_docx_from_text,
+    build_research_note_docx,
+    build_research_note_hwpx,
+    generate_research_note_summary,
+    hwpx_available,
+    note_rows,
+    parse_research_note_fields,
+)
 from research_memory.engine.proposal import (
     analyze_rfp,
     build_markdown,
@@ -61,6 +78,7 @@ PAGE_CHAT = "Research Chat"
 PAGE_PROPOSAL = "Proposal Intelligence"
 PAGE_SIMILARITY = "Similarity Intelligence"
 PAGE_MILESTONE = "Milestone Intelligence"
+PAGE_RESEARCH_NOTE = "Research Note"
 
 MAIN_NAV = [
     (PAGE_HOME, "🏠 Home"),
@@ -68,6 +86,7 @@ MAIN_NAV = [
     (PAGE_CHAT, "💬 Research Chat"),
 ]
 FUTURE_NAV = [
+    (PAGE_RESEARCH_NOTE, "Research Note"),
     (PAGE_PROPOSAL, "Proposal Intelligence"),
     (PAGE_SIMILARITY, "Similarity Intelligence"),
     (PAGE_MILESTONE, "Milestone Intelligence"),
@@ -163,7 +182,21 @@ def main() -> None:
         st.caption("System")
         stats = _kb_stats()
         st.write(f"Documents: **{stats['doc_count']}**")
-        st.write(f"LLM: {'connected' if llm_available() else 'offline'}")
+        models = list_ollama_models()
+        if models:
+            if "llm_model" not in st.session_state:
+                current = get_active_model()
+                st.session_state.llm_model = current if current in models else models[0]
+            choice = st.selectbox(
+                "LLM model",
+                models,
+                key="llm_model",
+            )
+            set_active_model(choice)
+            st.caption("Ollama · connected")
+        else:
+            st.write("LLM: **offline**")
+            set_active_model(MODEL_NAME)
         st.write(f"Embed: `{EMBED_MODEL}`")
         if MOCK_LLM:
             st.warning("RM_MOCK_LLM=true")
@@ -179,6 +212,14 @@ def main() -> None:
         _library_page()
     elif page == PAGE_CHAT:
         _chat_page()
+    elif page == PAGE_RESEARCH_NOTE:
+        _roadmap_banner(
+            "Research Note",
+            "Memory 자료(또는 붙여넣은 텍스트)로 연구노트용 요약을 만들고, "
+            "표 형식 연구노트로 변환·다운로드합니다. "
+            "Document Analyser의 연구노트 작성과 같은 흐름입니다. Early access below.",
+        )
+        _research_note_panel()
     elif page == PAGE_PROPOSAL:
         _roadmap_banner(
             "Proposal Intelligence",
@@ -708,6 +749,238 @@ def _render_evidence(cites: list[dict]) -> None:
         )
         if i < min(5, len(cites)):
             st.divider()
+
+
+def _research_note_panel() -> None:
+    """Document Analyser writer flow: source → summary → form → download."""
+    st.subheader("연구노트 작성")
+    st.caption("Memory 문서 또는 텍스트 → 통합 요약 → 연구노트 폼 → HWPX/DOCX")
+
+    docs = [d for d in repo.list_documents() if d.get("status") == "ready"]
+    labels = {
+        f"{d.get('title') or d['filename']} · {d.get('project_id') or '—'}": d["id"]
+        for d in docs
+    }
+    picked = st.multiselect(
+        "Memory에서 참고할 문서",
+        list(labels.keys()),
+        key="rn_mem_docs",
+    )
+    paste = st.text_area(
+        "또는 텍스트 직접 붙여넣기",
+        height=140,
+        key="rn_paste",
+        placeholder="회의록, 실험 메모, 관련 발췌…",
+    )
+
+    if st.button("연구노트용 통합 요약 생성", type="primary", key="rn_gen"):
+        parts: list[str] = []
+        filenames: list[str] = []
+        for lab in picked:
+            doc = repo.get_document(labels[lab])
+            if not doc:
+                continue
+            filenames.append(doc.get("filename") or lab)
+            body = (doc.get("full_text") or "").strip()
+            if body:
+                parts.append(f"# {doc.get('filename')}\n{body[:4000]}")
+        if paste.strip():
+            parts.append(paste.strip())
+            if not filenames:
+                filenames = ["pasted_text"]
+        if not parts:
+            st.warning("문서나 텍스트를 먼저 넣어 주세요.")
+        else:
+            with st.spinner("연구노트용 요약 생성 중…"):
+                summary = generate_research_note_summary(
+                    "\n\n".join(parts),
+                    filenames=filenames,
+                )
+            st.session_state.rn_writer_text = summary
+            st.session_state.rn_source_files = filenames
+            # seed form once
+            parsed = parse_research_note_fields(summary)
+            if parsed.get("topic"):
+                st.session_state.rn_topic = parsed["topic"]
+            if parsed.get("content"):
+                st.session_state.rn_content = parsed["content"]
+            if parsed.get("results"):
+                st.session_state.rn_results = parsed["results"]
+            st.session_state.rn_converted = False
+            st.rerun()
+
+    # defaults
+    for k, v in (
+        ("rn_topic", ""),
+        ("rn_owner", ""),
+        ("rn_author", ""),
+        ("rn_content", ""),
+        ("rn_results", ""),
+        ("rn_etc", ""),
+        ("rn_writer_text", ""),
+    ):
+        if k not in st.session_state:
+            st.session_state[k] = v
+    if "rn_date" not in st.session_state:
+        st.session_state.rn_date = date.today()
+
+    # pending convert (widget-safe)
+    pending = st.session_state.pop("rn_pending_content", None)
+    if pending is not None:
+        text = str(pending)
+        parsed = parse_research_note_fields(text)
+        if parsed.get("topic") or parsed.get("results") or "주제 제안" in text:
+            if parsed.get("topic"):
+                st.session_state.rn_topic = parsed["topic"]
+            if str(parsed.get("content") or "").strip():
+                st.session_state.rn_content = parsed["content"]
+            if parsed.get("results"):
+                st.session_state.rn_results = parsed["results"]
+        else:
+            st.session_state.rn_content = text
+        st.session_state.rn_converted = True
+
+    summary = st.session_state.get("rn_writer_text") or ""
+    if not summary and not any(
+        str(st.session_state.get(k) or "").strip()
+        for k in ("rn_topic", "rn_content", "rn_results")
+    ):
+        st.info(
+            "1. Memory 문서를 고르거나 텍스트를 붙여넣기\n"
+            "2. **연구노트용 통합 요약 생성**\n"
+            "3. 요약 수정 → **연구노트로 변환** → 폼 편집 → 다운로드"
+        )
+        return
+
+    files = st.session_state.get("rn_source_files") or []
+    if files:
+        st.caption(f"참고 파일: {', '.join(files)}")
+
+    left, mid, right = st.columns([5, 1.2, 5], gap="medium")
+    with left:
+        st.markdown("**요약문**")
+        st.text_area(
+            "요약문 편집",
+            key="rn_writer_text",
+            height=280,
+            label_visibility="collapsed",
+        )
+        st.markdown("**연구노트 미리보기**")
+        components.html(_rn_preview_html(), height=420, scrolling=True)
+
+    with mid:
+        st.write("")
+        st.write("")
+        st.write("")
+        if st.button("연구노트로\n변환", type="primary", use_container_width=True, key="rn_convert"):
+            st.session_state.rn_pending_content = st.session_state.get("rn_writer_text") or ""
+            st.rerun()
+        st.caption("요약 → 폼")
+        if st.session_state.get("rn_converted"):
+            st.caption("변환됨 →")
+
+    with right:
+        st.markdown("**연구노트**")
+        st.text_input("주제", key="rn_topic")
+        st.text_input("책임자", key="rn_owner")
+        st.date_input("일시", key="rn_date")
+        st.text_input("작성자", key="rn_author")
+        st.text_area("내용", key="rn_content", height=160)
+        st.text_area("연구결과", key="rn_results", height=100)
+        st.text_area("기타내용", key="rn_etc", height=80)
+
+    st.markdown("---")
+    st.subheader("다운로드")
+    d = st.session_state.get("rn_date")
+    date_s = d.isoformat() if hasattr(d, "isoformat") else str(d or "")
+    rows = note_rows(
+        topic=st.session_state.get("rn_topic") or "",
+        owner=st.session_state.get("rn_owner") or "",
+        date_s=date_s,
+        author=st.session_state.get("rn_author") or "",
+        content=st.session_state.get("rn_content") or "",
+        results=st.session_state.get("rn_results") or "",
+        etc=st.session_state.get("rn_etc") or "",
+    )
+
+    try:
+        if st.session_state.get("rn_converted"):
+            docx_bytes = build_research_note_docx(rows)
+            hwpx_bytes = None
+            hwpx_err = ""
+            if hwpx_available():
+                try:
+                    hwpx_bytes = build_research_note_hwpx(rows)
+                except Exception as exc:  # noqa: BLE001
+                    hwpx_err = str(exc)
+        else:
+            export_text = st.session_state.get("rn_writer_text") or ""
+            docx_bytes = build_docx_from_text(export_text)
+            hwpx_bytes = None
+            hwpx_err = ""
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"다운로드 파일 생성 실패: {exc}")
+        return
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.download_button(
+            "DOCX로 다운로드",
+            data=docx_bytes,
+            file_name="research_note.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True,
+            key="rn_dl_docx",
+            type="primary",
+        )
+    with c2:
+        st.download_button(
+            "HWPX로 다운로드",
+            data=hwpx_bytes or b"",
+            file_name="research_note.hwpx",
+            mime="application/hwp+zip",
+            use_container_width=True,
+            key="rn_dl_hwpx",
+            disabled=not bool(hwpx_bytes),
+        )
+    if hwpx_err:
+        st.caption(f"HWPX 생성 불가 — DOCX는 사용 가능합니다. ({hwpx_err[:160]})")
+    if not st.session_state.get("rn_converted"):
+        st.caption("표 형식 연구노트로 받으려면 먼저 「연구노트로 변환」을 눌러 주세요.")
+
+
+def _rn_preview_html() -> str:
+    d = st.session_state.get("rn_date")
+    date_s = d.isoformat() if hasattr(d, "isoformat") else str(d or "")
+    rows = note_rows(
+        topic=st.session_state.get("rn_topic") or "",
+        owner=st.session_state.get("rn_owner") or "",
+        date_s=date_s,
+        author=st.session_state.get("rn_author") or "",
+        content=st.session_state.get("rn_content") or "",
+        results=st.session_state.get("rn_results") or "",
+        etc=st.session_state.get("rn_etc") or "",
+    )
+    tall = {"내 용", "연구결과", "기타내용"}
+    body = []
+    for label, val in rows:
+        min_h = "140px" if label == "내 용" else ("90px" if label in tall else "36px")
+        body.append(
+            f"""<tr>
+  <th style="width:22%;background:#f0f0f0;text-align:center;vertical-align:middle;
+             border:1px solid #333;padding:8px;font-weight:600;">{escape(label)}</th>
+  <td style="border:1px solid #333;padding:8px;vertical-align:top;min-height:{min_h};
+             white-space:pre-wrap;">{escape(val)}</td>
+</tr>"""
+        )
+    return f"""
+<div style="font-family:'Malgun Gothic','맑은 고딕',sans-serif;color:#111;">
+  <div style="text-align:center;font-size:22px;font-weight:700;margin:8px 0 14px;">연구노트</div>
+  <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+    {''.join(body)}
+  </table>
+</div>
+"""
 
 
 def _similarity_panel() -> None:
