@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from datetime import date, datetime
 from html import escape
@@ -31,14 +32,16 @@ from research_memory.engine.llm import (
     set_active_model,
 )
 from research_memory.engine.research_note import (
-    build_docx_from_text,
     build_research_note_docx,
     build_research_note_hwpx,
     generate_research_note_summary,
     hwpx_available,
+    note_as_markdown,
     note_rows,
     parse_research_note_fields,
 )
+from research_memory.pipeline.extractors import extract_chunks
+from research_memory.pipeline.ingest import ingest_bytes
 from research_memory.engine.proposal import (
     analyze_rfp,
     build_markdown,
@@ -60,7 +63,6 @@ from research_memory.engine.tracking import (
     seed_demo_project,
 )
 from research_memory.kb.repository import KnowledgeRepository
-from research_memory.pipeline.ingest import ingest_bytes
 from research_memory.schema import Citation
 
 st.set_page_config(
@@ -215,9 +217,9 @@ def main() -> None:
     elif page == PAGE_RESEARCH_NOTE:
         _roadmap_banner(
             "Research Note",
-            "Memory 자료(또는 붙여넣은 텍스트)로 연구노트용 요약을 만들고, "
-            "표 형식 연구노트로 변환·다운로드합니다. "
-            "Document Analyser의 연구노트 작성과 같은 흐름입니다. Early access below.",
+            "프로젝트 단위로 연구노트를 이어 씁니다. "
+            "과거 Memory + 새 업로드 → 표 형식 노트 → 다운로드 및 Memory 저장. "
+            "Document Analyser 연구노트 흐름 기반. Early access below.",
         )
         _research_note_panel()
     elif page == PAGE_PROPOSAL:
@@ -751,63 +753,51 @@ def _render_evidence(cites: list[dict]) -> None:
             st.divider()
 
 
+def _rn_project_choices() -> list[str]:
+    ids: set[str] = set()
+    for p in repo.list_projects():
+        pid = (p.get("project_id") or "").strip()
+        if pid:
+            ids.add(pid)
+    for d in repo.list_documents():
+        pid = (d.get("project_id") or "").strip()
+        if pid:
+            ids.add(pid)
+    return sorted(ids)
+
+
+def _rn_extract_upload_text(uploads) -> tuple[list[str], list[str]]:
+    """Return (text parts, filenames) from Streamlit UploadedFile list."""
+    parts: list[str] = []
+    names: list[str] = []
+    if not uploads:
+        return parts, names
+    for f in uploads:
+        names.append(f.name)
+        tmp = ROOT / "data" / "raw" / f"_rn_tmp_{f.name}"
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_bytes(f.getvalue())
+        try:
+            _ftype, chunks, err = extract_chunks(tmp)
+            if err:
+                parts.append(f"# {f.name}\n[extract error: {err}]")
+            else:
+                body = "\n".join(c.text for c in chunks if c.text).strip()
+                parts.append(f"# {f.name}\n{body[:6000]}" if body else f"# {f.name}\n")
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
+    return parts, names
+
+
 def _research_note_panel() -> None:
-    """Document Analyser writer flow: source → summary → form → download."""
+    """Project-scoped research note: past Memory + new uploads → table note → save."""
     st.subheader("연구노트 작성")
-    st.caption("Memory 문서 또는 텍스트 → 통합 요약 → 연구노트 폼 → HWPX/DOCX")
-
-    docs = [d for d in repo.list_documents() if d.get("status") == "ready"]
-    labels = {
-        f"{d.get('title') or d['filename']} · {d.get('project_id') or '—'}": d["id"]
-        for d in docs
-    }
-    picked = st.multiselect(
-        "Memory에서 참고할 문서",
-        list(labels.keys()),
-        key="rn_mem_docs",
+    st.caption(
+        "프로젝트에 묶어 이어 쓰고, 과거 Memory + 새 자료를 합쳐 표 형식 연구노트로 저장합니다."
     )
-    paste = st.text_area(
-        "또는 텍스트 직접 붙여넣기",
-        height=140,
-        key="rn_paste",
-        placeholder="회의록, 실험 메모, 관련 발췌…",
-    )
-
-    if st.button("연구노트용 통합 요약 생성", type="primary", key="rn_gen"):
-        parts: list[str] = []
-        filenames: list[str] = []
-        for lab in picked:
-            doc = repo.get_document(labels[lab])
-            if not doc:
-                continue
-            filenames.append(doc.get("filename") or lab)
-            body = (doc.get("full_text") or "").strip()
-            if body:
-                parts.append(f"# {doc.get('filename')}\n{body[:4000]}")
-        if paste.strip():
-            parts.append(paste.strip())
-            if not filenames:
-                filenames = ["pasted_text"]
-        if not parts:
-            st.warning("문서나 텍스트를 먼저 넣어 주세요.")
-        else:
-            with st.spinner("연구노트용 요약 생성 중…"):
-                summary = generate_research_note_summary(
-                    "\n\n".join(parts),
-                    filenames=filenames,
-                )
-            st.session_state.rn_writer_text = summary
-            st.session_state.rn_source_files = filenames
-            # seed form once
-            parsed = parse_research_note_fields(summary)
-            if parsed.get("topic"):
-                st.session_state.rn_topic = parsed["topic"]
-            if parsed.get("content"):
-                st.session_state.rn_content = parsed["content"]
-            if parsed.get("results"):
-                st.session_state.rn_results = parsed["results"]
-            st.session_state.rn_converted = False
-            st.rerun()
 
     # defaults
     for k, v in (
@@ -840,15 +830,128 @@ def _research_note_panel() -> None:
             st.session_state.rn_content = text
         st.session_state.rn_converted = True
 
+    st.markdown("#### 1. Project")
+    projects = _rn_project_choices()
+    pcol1, pcol2 = st.columns([2, 2])
+    with pcol1:
+        choice = st.selectbox(
+            "Library 프로젝트 선택",
+            ["(선택)"] + projects,
+            key="rn_project_select",
+        )
+    with pcol2:
+        custom = st.text_input(
+            "또는 새 Project ID",
+            key="rn_project_custom",
+            placeholder="e.g. ALD-2024",
+        )
+    project_id = (custom or "").strip() or (
+        "" if choice == "(선택)" else choice
+    )
+    if not project_id:
+        st.info("먼저 이 연구노트가 속할 **Project**를 선택하거나 입력하세요.")
+        return
+    st.session_state.rn_project_id = project_id
+    st.caption(f"현재 프로젝트: `{project_id}`")
+
+    st.markdown("#### 2. Sources")
+    scol1, scol2 = st.columns(2)
+    with scol1:
+        st.markdown("**Connecting to past Memory**")
+        proj_docs = [
+            d
+            for d in repo.list_documents()
+            if d.get("status") == "ready"
+            and (d.get("project_id") or "").strip() == project_id
+        ]
+        # also allow browsing other memory docs
+        other = [
+            d
+            for d in repo.list_documents()
+            if d.get("status") == "ready"
+            and (d.get("project_id") or "").strip() != project_id
+        ]
+        mem_labels = {
+            f"[this project] {d.get('title') or d['filename']}": d["id"] for d in proj_docs
+        }
+        mem_labels.update(
+            {
+                f"[{d.get('project_id') or '—'}] {d.get('title') or d['filename']}": d["id"]
+                for d in other
+            }
+        )
+        picked = st.multiselect(
+            "과거 Memory 문서",
+            list(mem_labels.keys()),
+            key="rn_mem_docs",
+            help="같은 과제에서 이어갈 과거 노트·보고서 등",
+        )
+        if not proj_docs:
+            st.caption("이 프로젝트에 아직 Memory 문서가 없습니다.")
+
+    with scol2:
+        st.markdown("**New / updated files**")
+        uploads = st.file_uploader(
+            "새 자료 업로드",
+            type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx"],
+            accept_multiple_files=True,
+            key="rn_uploads",
+            help="Document Analyser처럼 이번에 추가된 자료",
+        )
+        paste = st.text_area(
+            "짧은 메모 / 붙여넣기",
+            height=100,
+            key="rn_paste",
+            placeholder="오늘 진행 메모…",
+        )
+
+    if st.button("연구노트용 통합 요약 생성", type="primary", key="rn_gen"):
+        parts: list[str] = []
+        filenames: list[str] = []
+        for lab in picked:
+            doc = repo.get_document(mem_labels[lab])
+            if not doc:
+                continue
+            filenames.append(doc.get("filename") or lab)
+            body = (doc.get("full_text") or "").strip()
+            if body:
+                parts.append(f"# [Memory] {doc.get('filename')}\n{body[:4000]}")
+        up_parts, up_names = _rn_extract_upload_text(uploads)
+        parts.extend(up_parts)
+        filenames.extend(up_names)
+        if paste.strip():
+            parts.append(f"# note\n{paste.strip()}")
+            filenames.append("pasted_note")
+        if not parts:
+            st.warning("과거 Memory 문서나 새 파일을 하나 이상 넣어 주세요.")
+        else:
+            with st.spinner("연구노트용 요약 생성 중…"):
+                summary = generate_research_note_summary(
+                    "\n\n".join(parts),
+                    filenames=filenames,
+                )
+            st.session_state.rn_writer_text = summary
+            st.session_state.rn_source_files = filenames
+            parsed = parse_research_note_fields(summary)
+            if parsed.get("topic"):
+                st.session_state.rn_topic = parsed["topic"]
+            if parsed.get("content"):
+                st.session_state.rn_content = parsed["content"]
+            if parsed.get("results"):
+                st.session_state.rn_results = parsed["results"]
+            # auto-convert into table form (preview = download)
+            st.session_state.rn_converted = True
+            st.rerun()
+
     summary = st.session_state.get("rn_writer_text") or ""
     if not summary and not any(
         str(st.session_state.get(k) or "").strip()
         for k in ("rn_topic", "rn_content", "rn_results")
     ):
         st.info(
-            "1. Memory 문서를 고르거나 텍스트를 붙여넣기\n"
-            "2. **연구노트용 통합 요약 생성**\n"
-            "3. 요약 수정 → **연구노트로 변환** → 폼 편집 → 다운로드"
+            "1. Project 선택\n"
+            "2. 과거 Memory + 새 파일/메모\n"
+            "3. **통합 요약 생성** → 표 편집 → 다운로드 / Memory 저장"
         )
         return
 
@@ -856,6 +959,7 @@ def _research_note_panel() -> None:
     if files:
         st.caption(f"참고 파일: {', '.join(files)}")
 
+    st.markdown("#### 3. Draft")
     left, mid, right = st.columns([5, 1.2, 5], gap="medium")
     with left:
         st.markdown("**요약문**")
@@ -865,22 +969,22 @@ def _research_note_panel() -> None:
             height=280,
             label_visibility="collapsed",
         )
-        st.markdown("**연구노트 미리보기**")
+        st.markdown("**연구노트 미리보기 (표)**")
         components.html(_rn_preview_html(), height=420, scrolling=True)
 
     with mid:
         st.write("")
         st.write("")
         st.write("")
-        if st.button("연구노트로\n변환", type="primary", use_container_width=True, key="rn_convert"):
+        if st.button("표로 반영", type="primary", use_container_width=True, key="rn_convert"):
             st.session_state.rn_pending_content = st.session_state.get("rn_writer_text") or ""
             st.rerun()
-        st.caption("요약 → 폼")
+        st.caption("요약 → 표")
         if st.session_state.get("rn_converted"):
-            st.caption("변환됨 →")
+            st.caption("반영됨 →")
 
     with right:
-        st.markdown("**연구노트**")
+        st.markdown("**연구노트 표**")
         st.text_input("주제", key="rn_topic")
         st.text_input("책임자", key="rn_owner")
         st.date_input("일시", key="rn_date")
@@ -890,7 +994,7 @@ def _research_note_panel() -> None:
         st.text_area("기타내용", key="rn_etc", height=80)
 
     st.markdown("---")
-    st.subheader("다운로드")
+    st.subheader("4. Export & Save")
     d = st.session_state.get("rn_date")
     date_s = d.isoformat() if hasattr(d, "isoformat") else str(d or "")
     rows = note_rows(
@@ -903,31 +1007,29 @@ def _research_note_panel() -> None:
         etc=st.session_state.get("rn_etc") or "",
     )
 
+    # Always export table format (same as preview)
     try:
-        if st.session_state.get("rn_converted"):
-            docx_bytes = build_research_note_docx(rows)
-            hwpx_bytes = None
-            hwpx_err = ""
-            if hwpx_available():
-                try:
-                    hwpx_bytes = build_research_note_hwpx(rows)
-                except Exception as exc:  # noqa: BLE001
-                    hwpx_err = str(exc)
-        else:
-            export_text = st.session_state.get("rn_writer_text") or ""
-            docx_bytes = build_docx_from_text(export_text)
-            hwpx_bytes = None
-            hwpx_err = ""
+        docx_bytes = build_research_note_docx(rows)
+        hwpx_bytes = None
+        hwpx_err = ""
+        if hwpx_available():
+            try:
+                hwpx_bytes = build_research_note_hwpx(rows)
+            except Exception as exc:  # noqa: BLE001
+                hwpx_err = str(exc)
     except Exception as exc:  # noqa: BLE001
-        st.error(f"다운로드 파일 생성 실패: {exc}")
+        st.error(f"표 형식 파일 생성 실패: {exc}")
         return
 
-    c1, c2 = st.columns(2)
+    topic_slug = re.sub(r"[^\w가-힣\-]+", "_", (st.session_state.get("rn_topic") or "research_note"))[:40]
+    base_name = f"research_note_{project_id}_{date_s}_{topic_slug}".strip("_")
+
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.download_button(
-            "DOCX로 다운로드",
+            "DOCX (표)",
             data=docx_bytes,
-            file_name="research_note.docx",
+            file_name=f"{base_name}.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             use_container_width=True,
             key="rn_dl_docx",
@@ -935,18 +1037,52 @@ def _research_note_panel() -> None:
         )
     with c2:
         st.download_button(
-            "HWPX로 다운로드",
+            "HWPX (표)",
             data=hwpx_bytes or b"",
-            file_name="research_note.hwpx",
+            file_name=f"{base_name}.hwpx",
             mime="application/hwp+zip",
             use_container_width=True,
             key="rn_dl_hwpx",
             disabled=not bool(hwpx_bytes),
         )
+    with c3:
+        if st.button("Memory에 저장", use_container_width=True, key="rn_save_mem"):
+            md = note_as_markdown(
+                topic=st.session_state.get("rn_topic") or "",
+                owner=st.session_state.get("rn_owner") or "",
+                date_s=date_s,
+                author=st.session_state.get("rn_author") or "",
+                content=st.session_state.get("rn_content") or "",
+                results=st.session_state.get("rn_results") or "",
+                etc=st.session_state.get("rn_etc") or "",
+                project_id=project_id,
+            )
+            with st.spinner("Memory에 연구노트 저장 중…"):
+                result = ingest_bytes(
+                    md.encode("utf-8"),
+                    f"{base_name}.md",
+                    repo=repo,
+                    project_id=project_id,
+                )
+                # also keep table DOCX in Memory
+                ingest_bytes(
+                    docx_bytes,
+                    f"{base_name}.docx",
+                    repo=repo,
+                    project_id=project_id,
+                )
+            if result.get("ok"):
+                st.success(
+                    f"저장됨 · project=`{project_id}` · "
+                    f"{'updated' if result.get('skipped') else 'new'} "
+                    f"{result.get('filename')}"
+                )
+            else:
+                st.error(result.get("error") or "저장 실패")
+
     if hwpx_err:
-        st.caption(f"HWPX 생성 불가 — DOCX는 사용 가능합니다. ({hwpx_err[:160]})")
-    if not st.session_state.get("rn_converted"):
-        st.caption("표 형식 연구노트로 받으려면 먼저 「연구노트로 변환」을 눌러 주세요.")
+        st.caption(f"HWPX 생성 불가 — DOCX/Memory 저장은 가능합니다. ({hwpx_err[:160]})")
+    st.caption("다운로드·저장은 미리보기와 같은 **표 형식**입니다.")
 
 
 def _rn_preview_html() -> str:

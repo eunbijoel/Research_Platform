@@ -139,6 +139,40 @@ def note_rows(
     ]
 
 
+def note_as_markdown(
+    *,
+    topic: str,
+    owner: str,
+    date_s: str,
+    author: str,
+    content: str,
+    results: str,
+    etc: str,
+    project_id: str = "",
+) -> str:
+    """Plain markdown twin of the research-note table (good for Memory ingest)."""
+    lines = [
+        f"# 연구노트 — {topic or '제목 없음'}",
+        "",
+    ]
+    if project_id:
+        lines.append(f"Project: {project_id}")
+        lines.append("")
+    for label, val in note_rows(
+        topic=topic,
+        owner=owner,
+        date_s=date_s,
+        author=author,
+        content=content,
+        results=results,
+        etc=etc,
+    ):
+        lines.append(f"## {label.strip()}")
+        lines.append(val.strip() or "확인 필요")
+        lines.append("")
+    return "\n".join(lines).strip() + "\n"
+
+
 def _normalize_note_rows(rows: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
     out = [(str(label or ""), str(val or "")) for label, val in rows]
     return out or [("내 용", " ")]
