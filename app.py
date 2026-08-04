@@ -915,7 +915,6 @@ def _upload_panel() -> None:
 
 def _chat_page() -> None:
     st.title("Research Chat")
-    st.caption("답변 후, 근거(Evidence)는 펼쳐서 확인합니다. 근거 없으면 답하지 않습니다.")
 
     docs = [d for d in repo.list_documents() if d.get("status") == "ready"]
     if not docs:
