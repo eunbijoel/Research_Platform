@@ -166,6 +166,62 @@ class KnowledgeRepository:
             conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
         self.rebuild_index()
 
+    def update_document(
+        self,
+        document_id: str,
+        *,
+        title: str | None = None,
+        project_id: str | None = None,
+        full_text: str | None = None,
+    ) -> None:
+        """Update metadata and/or body text; re-chunk when full_text changes."""
+        from research_memory.pipeline.chunking import refine_chunks
+        from research_memory.schema import TextChunk
+
+        doc = self.get_document(document_id)
+        if not doc:
+            raise ValueError(f"document not found: {document_id}")
+
+        new_title = doc.get("title") if title is None else title
+        new_project = doc.get("project_id") if project_id is None else project_id
+        new_text = doc.get("full_text") if full_text is None else full_text
+
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE documents
+                SET title = ?, project_id = ?, full_text = ?
+                WHERE id = ?
+                """,
+                (new_title or "", new_project or "", new_text or "", document_id),
+            )
+            if full_text is not None:
+                conn.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
+                raw = [
+                    TextChunk(
+                        text=new_text or "",
+                        location="edited",
+                        chunk_index=0,
+                    )
+                ]
+                for ch in refine_chunks(raw):
+                    conn.execute(
+                        """
+                        INSERT INTO chunks (id, document_id, chunk_index, location, page, text)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            str(uuid.uuid4()),
+                            document_id,
+                            ch.chunk_index,
+                            ch.location,
+                            ch.page,
+                            ch.text,
+                        ),
+                    )
+        if full_text is not None:
+            self.rebuild_index()
+
     def insert_failed_document(
         self,
         *,

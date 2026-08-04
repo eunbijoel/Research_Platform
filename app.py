@@ -578,10 +578,9 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
         st.warning("Document not found.")
         return
 
-    top = st.columns([1, 4])
+    top = st.columns([1, 2, 1])
     if top[0].button("← Back", use_container_width=True):
         st.session_state.pop("library_selected_id", None)
-        # stay in project/search context if set
         if not st.session_state.get("library_view"):
             st.session_state.library_view = "projects"
         st.rerun()
@@ -591,6 +590,21 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
             f"{title} 문서 기준으로, Memory 근거를 들어 핵심 내용을 요약해 주세요."
         )
         _go(PAGE_CHAT)
+    if top[2].button("Delete", use_container_width=True, key=f"del-top-{doc_id}"):
+        st.session_state[f"confirm_del_{doc_id}"] = True
+
+    if st.session_state.get(f"confirm_del_{doc_id}"):
+        st.warning(f"Delete `{doc.get('filename')}` from Memory?")
+        c_yes, c_no = st.columns(2)
+        if c_yes.button("Yes, delete", type="primary", key=f"del-yes-{doc_id}"):
+            repo.delete_document(doc_id)
+            st.session_state.pop("library_selected_id", None)
+            st.session_state.pop(f"confirm_del_{doc_id}", None)
+            st.session_state.pop(f"ai_summary_{doc_id}", None)
+            st.rerun()
+        if c_no.button("Cancel", key=f"del-no-{doc_id}"):
+            st.session_state.pop(f"confirm_del_{doc_id}", None)
+            st.rerun()
 
     title = doc.get("title") or doc["filename"]
     st.markdown(f"## {title}")
@@ -603,12 +617,55 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
     tab_preview, tab_sum, tab_related = st.tabs(["Preview", "Summary", "Related"])
 
     with tab_preview:
-        text = (doc.get("full_text") or "").strip()
-        if not text:
-            st.caption("미리볼 텍스트가 없습니다.")
+        edit_key = f"lib_edit_mode_{doc_id}"
+        if edit_key not in st.session_state:
+            st.session_state[edit_key] = False
+
+        e1, e2 = st.columns([1, 4])
+        if e1.button(
+            "Done" if st.session_state[edit_key] else "Edit",
+            key=f"lib-edit-toggle-{doc_id}",
+            use_container_width=True,
+        ):
+            st.session_state[edit_key] = not st.session_state[edit_key]
+            st.rerun()
+
+        if st.session_state[edit_key]:
+            new_title = st.text_input(
+                "Title",
+                value=doc.get("title") or "",
+                key=f"lib-edit-title-{doc_id}",
+            )
+            new_project = st.text_input(
+                "Project ID",
+                value=doc.get("project_id") or "",
+                key=f"lib-edit-project-{doc_id}",
+            )
+            new_text = st.text_area(
+                "Body",
+                value=doc.get("full_text") or "",
+                height=420,
+                key=f"lib-edit-body-{doc_id}",
+            )
+            if st.button("Save changes", type="primary", key=f"lib-edit-save-{doc_id}"):
+                with st.spinner("Saving and re-indexing…"):
+                    repo.update_document(
+                        doc_id,
+                        title=new_title.strip(),
+                        project_id=new_project.strip(),
+                        full_text=new_text,
+                    )
+                st.session_state[edit_key] = False
+                st.session_state.pop(f"ai_summary_{doc_id}", None)
+                st.success("Saved.")
+                st.rerun()
         else:
-            st.text(text)
-            st.caption(f"{len(text):,} characters")
+            text = (doc.get("full_text") or "").strip()
+            if not text:
+                st.caption("미리볼 텍스트가 없습니다.")
+            else:
+                st.text(text)
+                st.caption(f"{len(text):,} characters")
 
     with tab_sum:
         st.caption("원문은 Preview에서 보세요.")
@@ -628,13 +685,6 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
         if st.button("AI로 다시 요약", key=f"sum-{doc_id}"):
             with st.spinner("요약 생성 중…"):
                 st.session_state[cache_key] = _ai_summary(doc)
-            st.rerun()
-
-        st.divider()
-        if st.button("Delete document", key=f"del-detail-{doc_id}"):
-            repo.delete_document(doc_id)
-            st.session_state.pop("library_selected_id", None)
-            st.session_state.pop(cache_key, None)
             st.rerun()
 
     with tab_related:
