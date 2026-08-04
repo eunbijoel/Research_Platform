@@ -86,9 +86,9 @@ MAIN_NAV = [
     (PAGE_HOME, "🏠 Home"),
     (PAGE_LIBRARY, "📚 Library"),
     (PAGE_CHAT, "💬 Research Chat"),
+    (PAGE_RESEARCH_NOTE, "📝 Research Note"),
 ]
 FUTURE_NAV = [
-    (PAGE_RESEARCH_NOTE, "Research Note"),
     (PAGE_PROPOSAL, "Proposal Intelligence"),
     (PAGE_SIMILARITY, "Similarity Intelligence"),
     (PAGE_MILESTONE, "Milestone Intelligence"),
@@ -215,11 +215,10 @@ def main() -> None:
     elif page == PAGE_CHAT:
         _chat_page()
     elif page == PAGE_RESEARCH_NOTE:
-        _roadmap_banner(
-            "Research Note",
+        st.title("Research Note")
+        st.caption(
             "프로젝트 단위로 연구노트를 이어 씁니다. "
-            "과거 Memory + 새 업로드 → 표 형식 노트 → 다운로드 및 Memory 저장. "
-            "Document Analyser 연구노트 흐름 기반. Early access below.",
+            "과거 Memory + 새 업로드 → 표 형식 노트 → 다운로드 및 Memory 저장."
         )
         _research_note_panel()
     elif page == PAGE_PROPOSAL:
