@@ -299,11 +299,6 @@ def _home_page() -> None:
     c3.metric("Chunks", stats["chunk_count"])
     c4.metric("Last Updated", stats["last_indexed"])
 
-    st.markdown("#### Knowledge Base")
-    m1, m2 = st.columns(2)
-    m1.write(f"**Status:** {stats['kb_status']}")
-    m2.write(f"**Embedding:** `{EMBED_MODEL}`")
-
     st.markdown("#### Quick Actions")
     q1, q2, q3 = st.columns(3)
     if q1.button("+ Upload", type="primary", use_container_width=True):
