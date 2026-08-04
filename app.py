@@ -83,10 +83,10 @@ PAGE_MILESTONE = "Milestone Intelligence"
 PAGE_RESEARCH_NOTE = "Research Note"
 
 MAIN_NAV = [
-    (PAGE_HOME, "🏠 Home"),
-    (PAGE_LIBRARY, "📚 Library"),
-    (PAGE_CHAT, "💬 Research Chat"),
-    (PAGE_RESEARCH_NOTE, "📝 Research Note"),
+    (PAGE_HOME, "🏠 홈"),
+    (PAGE_LIBRARY, "📚 라이브러리"),
+    (PAGE_CHAT, "💬 채팅"),
+    (PAGE_RESEARCH_NOTE, "📝 연구노트"),
 ]
 FUTURE_NAV = [
     (PAGE_PROPOSAL, "Proposal Intelligence"),
@@ -216,10 +216,7 @@ def main() -> None:
         _chat_page()
     elif page == PAGE_RESEARCH_NOTE:
         st.title("Research Note")
-        st.caption(
-            "프로젝트 단위로 연구노트를 이어 씁니다. "
-            "과거 Memory + 새 업로드 → 표 형식 노트 → 다운로드 및 Memory 저장."
-        )
+        st.caption("프로젝트 맞춤 연구노트 작성 페이지 입니다. Memory+추가자료 참고 및 다운로드 및 저장.")
         _research_note_panel()
     elif page == PAGE_PROPOSAL:
         _roadmap_banner(
@@ -1027,10 +1024,6 @@ def _rn_extract_upload_text(uploads) -> tuple[list[str], list[str]]:
 
 def _research_note_panel() -> None:
     """Project-scoped research note: past Memory + new uploads → table note → save."""
-    st.subheader("연구노트 작성")
-    st.caption(
-        "프로젝트에 묶어 이어 쓰고, 과거 Memory + 새 자료를 합쳐 표 형식 연구노트로 저장합니다."
-    )
 
     # defaults
     for k, v in (
