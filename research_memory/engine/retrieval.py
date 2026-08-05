@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from research_memory.config import RETRIEVAL_TOP_K
 from research_memory.kb.repository import KnowledgeRepository
-from research_memory.schema import Citation
+from research_memory.schema import Citation, normalize_document_role
 
 
 def retrieve(
@@ -29,6 +29,11 @@ def retrieve_with_backend(
         snippet = hit["text"].strip()
         if len(snippet) > 420:
             snippet = snippet[:417] + "..."
+        role = hit.get("document_role")
+        if not role:
+            doc = repo.get_document(str(hit.get("document_id") or ""))
+            if doc:
+                role = doc.get("document_role")
         citations.append(
             Citation(
                 document_id=hit["document_id"],
@@ -36,6 +41,7 @@ def retrieve_with_backend(
                 location=hit.get("location") or "",
                 snippet=snippet,
                 score=float(hit.get("score") or 0.0),
+                document_role=normalize_document_role(role),
             )
         )
     return citations, backend

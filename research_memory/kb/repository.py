@@ -10,10 +10,33 @@ from typing import Any, Iterator
 
 from research_memory.config import DB_PATH, INDEX_PATH, VECTOR_INDEX_PATH, ensure_data_dirs
 from research_memory.kb.embeddings import rebuild_retrieval_index, search_retrieval
+from research_memory.schema import normalize_document_role
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _enrich_document(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Expose document_role from metadata_json with a safe default."""
+    if row is None:
+        return None
+    doc = dict(row)
+    meta: dict[str, Any] = {}
+    raw = doc.get("metadata_json")
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                meta = parsed
+        except json.JSONDecodeError:
+            meta = {}
+    elif isinstance(raw, dict):
+        meta = raw
+    role = normalize_document_role(meta.get("document_role") or doc.get("document_role"))
+    doc["document_role"] = role
+    doc["metadata"] = meta
+    return doc
 
 
 class KnowledgeRepository:
@@ -117,7 +140,7 @@ class KnowledgeRepository:
                 "SELECT * FROM documents WHERE content_hash = ?",
                 (content_hash,),
             ).fetchone()
-            return dict(row) if row else None
+            return _enrich_document(dict(row) if row else None)
 
     def list_documents(self) -> list[dict[str, Any]]:
         with self._conn() as conn:
@@ -130,7 +153,7 @@ class KnowledgeRepository:
                 ORDER BY d.created_at DESC
                 """
             ).fetchall()
-            return [dict(r) for r in rows]
+            return [_enrich_document(dict(r)) for r in rows]  # type: ignore[misc]
 
     def get_document(self, document_id: str) -> dict[str, Any] | None:
         with self._conn() as conn:
@@ -144,7 +167,7 @@ class KnowledgeRepository:
                 """,
                 (document_id,),
             ).fetchone()
-            return dict(row) if row else None
+            return _enrich_document(dict(row) if row else None)
 
     def list_chunks(self, document_id: str) -> list[dict[str, Any]]:
         with self._conn() as conn:
@@ -173,6 +196,8 @@ class KnowledgeRepository:
         title: str | None = None,
         project_id: str | None = None,
         full_text: str | None = None,
+        document_role: str | None = None,
+        doc_type: str | None = None,
     ) -> None:
         """Update metadata and/or body text; re-chunk when full_text changes."""
         from research_memory.pipeline.chunking import refine_chunks
@@ -185,15 +210,33 @@ class KnowledgeRepository:
         new_title = doc.get("title") if title is None else title
         new_project = doc.get("project_id") if project_id is None else project_id
         new_text = doc.get("full_text") if full_text is None else full_text
+        new_doc_type = doc.get("doc_type") if doc_type is None else doc_type
+
+        meta = dict(doc.get("metadata") or {})
+        if document_role is not None:
+            meta["document_role"] = normalize_document_role(document_role)
+        if doc_type is not None:
+            meta["doc_type"] = doc_type
+        if title is not None:
+            meta["title"] = title
+        if project_id is not None:
+            meta["project_id"] = project_id
 
         with self._conn() as conn:
             conn.execute(
                 """
                 UPDATE documents
-                SET title = ?, project_id = ?, full_text = ?
+                SET title = ?, project_id = ?, full_text = ?, doc_type = ?, metadata_json = ?
                 WHERE id = ?
                 """,
-                (new_title or "", new_project or "", new_text or "", document_id),
+                (
+                    new_title or "",
+                    new_project or "",
+                    new_text or "",
+                    new_doc_type or "other",
+                    json.dumps(meta, ensure_ascii=False),
+                    document_id,
+                ),
             )
             if full_text is not None:
                 conn.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
@@ -331,14 +374,28 @@ class KnowledgeRepository:
             rows = conn.execute(
                 """
                 SELECT c.id AS chunk_id, c.document_id, c.chunk_index, c.location, c.page, c.text,
-                       d.filename, d.title, d.project_id, d.doc_type, d.status
+                       d.filename, d.title, d.project_id, d.doc_type, d.status, d.metadata_json
                 FROM chunks c
                 JOIN documents d ON d.id = c.document_id
                 WHERE d.status = 'ready'
                 ORDER BY d.created_at DESC, c.chunk_index ASC
                 """
             ).fetchall()
-            return [dict(r) for r in rows]
+            out: list[dict[str, Any]] = []
+            for r in rows:
+                item = dict(r)
+                meta: dict[str, Any] = {}
+                raw = item.get("metadata_json")
+                if isinstance(raw, str) and raw.strip():
+                    try:
+                        parsed = json.loads(raw)
+                        if isinstance(parsed, dict):
+                            meta = parsed
+                    except json.JSONDecodeError:
+                        meta = {}
+                item["document_role"] = normalize_document_role(meta.get("document_role"))
+                out.append(item)
+            return out
 
     def list_facts(self, document_id: str | None = None) -> list[dict[str, Any]]:
         with self._conn() as conn:
@@ -613,4 +670,4 @@ class KnowledgeRepository:
                 """,
                 (project_id,),
             ).fetchall()
-            return [dict(r) for r in rows]
+            return [_enrich_document(dict(r)) for r in rows]  # type: ignore[misc]

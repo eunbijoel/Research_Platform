@@ -61,7 +61,12 @@ from research_memory.engine.tracking import (
     project_timeline,
 )
 from research_memory.kb.repository import KnowledgeRepository
-from research_memory.schema import Citation
+from research_memory.schema import (
+    ROLE_PROJECT,
+    ROLE_REFERENCE,
+    Citation,
+    normalize_document_role,
+)
 
 st.set_page_config(
     page_title="Research Memory Platform",
@@ -114,11 +119,27 @@ def _citation_from_dict(payload: dict) -> Citation:
         location=str(payload.get("location", "")),
         snippet=str(payload.get("snippet", "")),
         score=float(payload.get("score") or 0.0),
+        document_role=normalize_document_role(payload.get("document_role")),
     )
 
 
 def _citations_from_dicts(items: list[dict]) -> list[Citation]:
     return [_citation_from_dict(item) for item in items]
+
+
+def _document_role_of(doc_or_cite: dict | None) -> str:
+    if not doc_or_cite:
+        return ROLE_PROJECT
+    return normalize_document_role(doc_or_cite.get("document_role"))
+
+
+def _role_badge(doc_or_cite: dict | None, *, doc_type: str | None = None) -> str:
+    """Human label for Library / Evidence: [연구문서] / [참고자료] / [참고규정]."""
+    role = _document_role_of(doc_or_cite)
+    dtype = (doc_type or (doc_or_cite or {}).get("doc_type") or "").strip().lower()
+    if role == ROLE_REFERENCE:
+        return "[참고규정]" if dtype == "regulation" else "[참고자료]"
+    return "[연구문서]"
 
 
 def _kb_stats() -> dict:
@@ -393,41 +414,56 @@ def _library_projects_view(docs: list) -> None:
     st.caption("Open a project to see its documents in Memory.")
 
     if st.session_state.get("proj_creating"):
-        new_name = st.text_input(
-            "새 프로젝트명",
+        new_folder = st.text_input(
+            "폴더명",
             placeholder="예: Manufacturing-X",
             key="proj_create_name",
+            help="Library 카드에 크게 보이는 짧은 이름",
+        )
+        new_full = st.text_input(
+            "과제 full name (소제목)",
+            placeholder="예: 한국형 Manufacturing-X 온톨로지 구축",
+            key="proj_create_title",
+            help="폴더명 아래 소제목으로 표시됩니다",
         )
         c1, c2 = st.columns(2)
         if c1.button("추가", key="proj-create-save", use_container_width=True):
-            name = (new_name or "").strip()
+            folder = (new_folder or "").strip()
+            full_name = (new_full or "").strip() or folder
             existing = {p.get("project_id") for p in repo.list_projects()}
             existing |= {
                 (d.get("project_id") or "").strip()
                 for d in docs
                 if (d.get("project_id") or "").strip()
             }
-            if not name:
-                st.error("프로젝트명을 입력하세요.")
-            elif name == "(No project)":
+            if not folder:
+                st.error("폴더명을 입력하세요.")
+            elif folder == "(No project)":
                 st.error("이 이름은 사용할 수 없습니다.")
-            elif name in existing:
-                st.error(f"이미 있는 프로젝트입니다: {name}")
+            elif folder in existing:
+                st.error(f"이미 있는 프로젝트입니다: {folder}")
             else:
-                repo.upsert_project(project_id=name, title=name, status="active")
+                repo.upsert_project(project_id=folder, title=full_name, status="active")
                 st.session_state.proj_creating = False
                 st.session_state.pop("proj_create_name", None)
+                st.session_state.pop("proj_create_title", None)
                 st.rerun()
         if c2.button("취소", key="proj-create-cancel", use_container_width=True):
             st.session_state.proj_creating = False
             st.session_state.pop("proj_create_name", None)
+            st.session_state.pop("proj_create_title", None)
             st.rerun()
+
+    project_meta = {
+        (p.get("project_id") or "").strip(): p
+        for p in repo.list_projects()
+        if (p.get("project_id") or "").strip()
+    }
 
     groups = _group_docs_by_project(docs)
     # Registered projects should appear even when empty (0 documents).
-    for p in repo.list_projects():
-        pid = (p.get("project_id") or "").strip()
-        if pid and pid not in groups:
+    for pid in project_meta:
+        if pid not in groups:
             groups[pid] = []
     # Hide empty orphan bucket.
     if "(No project)" in groups and not groups["(No project)"]:
@@ -449,10 +485,10 @@ def _library_projects_view(docs: list) -> None:
                 break
             pid, group = items[i + j]
             with col:
-                _project_card(pid, group)
+                _project_card(pid, group, meta=project_meta.get(pid))
 
 
-def _project_card(project_id: str, docs: list) -> None:
+def _project_card(project_id: str, docs: list, meta: dict | None = None) -> None:
     years = sorted({str(d.get("year")) for d in docs if d.get("year") is not None})
     latest = max((str(d.get("created_at") or "") for d in docs), default="")[:10]
     year_s = "–".join([years[0], years[-1]]) if len(years) > 1 else (years[0] if years else "—")
@@ -467,15 +503,23 @@ def _project_card(project_id: str, docs: list) -> None:
     doc_n = len(docs)
     is_orphan = project_id == "(No project)"
     safe = hashlib.md5(project_id.encode("utf-8")).hexdigest()[:12]
+    meta = meta or {}
+    full_name = (meta.get("title") or "").strip()
+    subtitle = full_name if full_name and full_name != project_id else ""
 
     title_c, edit_c, del_c = st.columns([6, 1, 1])
-    title_c.markdown(
+    title_html = (
         f"<div style='font-size:16px;font-weight:700;color:#111827;padding-top:4px;'>"
-        f"{_html_esc(project_id)}</div>",
-        unsafe_allow_html=True,
+        f"{_html_esc(project_id)}</div>"
     )
+    if subtitle:
+        title_html += (
+            f"<div style='font-size:13px;color:#6b7280;margin-top:2px;line-height:1.35;'>"
+            f"{_html_esc(subtitle)}</div>"
+        )
+    title_c.markdown(title_html, unsafe_allow_html=True)
     if not is_orphan:
-        if edit_c.button("✎", key=f"proj-edit-{safe}", help="프로젝트명 변경", use_container_width=True):
+        if edit_c.button("✎", key=f"proj-edit-{safe}", help="폴더명 / 과제명 변경", use_container_width=True):
             st.session_state[f"proj_renaming_{safe}"] = True
             st.session_state[f"proj_rename_src_{safe}"] = project_id
             st.rerun()
@@ -487,19 +531,43 @@ def _project_card(project_id: str, docs: list) -> None:
     st.caption(f"자료 {doc_n}건 · 연구노트 {note_n}개 · {year_s} · {latest or '—'}")
 
     if st.session_state.get(f"proj_renaming_{safe}") and st.session_state.get(f"proj_rename_src_{safe}") == project_id:
-        new_name = st.text_input(
-            "새 프로젝트명",
+        new_folder = st.text_input(
+            "폴더명",
             value=project_id,
             key=f"proj-rename-input-{safe}",
+            help="Library 카드에 크게 보이는 짧은 이름",
+        )
+        new_full = st.text_input(
+            "과제 full name (소제목)",
+            value=full_name or project_id,
+            key=f"proj-rename-title-{safe}",
+            help="폴더명 아래 소제목으로 표시됩니다",
         )
         s1, s2 = st.columns(2)
         if s1.button("저장", key=f"proj-rename-save-{safe}", use_container_width=True):
             try:
-                repo.rename_project(project_id, (new_name or "").strip())
+                folder = (new_folder or "").strip()
+                title_val = (new_full or "").strip() or folder
+                if not folder:
+                    raise ValueError("폴더명을 입력하세요.")
+                if folder == "(No project)":
+                    raise ValueError("이 이름은 사용할 수 없습니다.")
+                if folder != project_id:
+                    repo.rename_project(project_id, folder)
+                existing = repo.get_project(folder) or {}
+                repo.upsert_project(
+                    project_id=folder,
+                    title=title_val,
+                    owner=existing.get("owner") or "",
+                    start_date=existing.get("start_date") or "",
+                    end_date=existing.get("end_date") or "",
+                    status=existing.get("status") or "active",
+                    notes=existing.get("notes") or "",
+                )
                 st.session_state.pop(f"proj_renaming_{safe}", None)
                 st.session_state.pop(f"proj_rename_src_{safe}", None)
                 if st.session_state.get("library_project_focus") == project_id:
-                    st.session_state.library_project_focus = (new_name or "").strip()
+                    st.session_state.library_project_focus = folder
                 st.rerun()
             except Exception as exc:  # noqa: BLE001
                 st.error(str(exc))
@@ -553,6 +621,10 @@ def _library_project_docs_view(docs: list, project_id: str) -> None:
         return
 
     st.markdown(f"### {project_id}")
+    proj = repo.get_project(project_id) or {}
+    full_name = (proj.get("title") or "").strip()
+    if full_name and full_name != project_id:
+        st.caption(full_name)
     if project_id == "(No project)":
         group = [d for d in docs if not (d.get("project_id") or "").strip()]
     else:
@@ -581,6 +653,11 @@ def _library_search_view(docs: list) -> None:
     )
     statuses = sorted({(d.get("status") or "").strip() for d in docs if d.get("status")})
 
+    role_f = st.selectbox(
+        "역할",
+        ["전체", "연구문서", "참고자료"],
+        key="lib_role",
+    )
     f1, f2, f3, f4, f5 = st.columns([1.3, 1.3, 1.0, 1.0, 2.2])
     type_f = f1.selectbox("Type", ["All"] + types, key="lib_type")
     proj_options = ["All"] + projects
@@ -597,6 +674,12 @@ def _library_search_view(docs: list) -> None:
             btn_key="search_sort_dir_btn",
         )
 
+    role_value = None
+    if role_f == "연구문서":
+        role_value = ROLE_PROJECT
+    elif role_f == "참고자료":
+        role_value = ROLE_REFERENCE
+
     filtered = _filter_documents(
         docs,
         query=q,
@@ -604,6 +687,7 @@ def _library_search_view(docs: list) -> None:
         project_id=None if project_f == "All" else project_f,
         year=None if year_f == "All" else year_f,
         status=None if status_f == "All" else status_f,
+        document_role=role_value,
     )
 
     st.caption(f"{len(filtered)} results")
@@ -678,8 +762,9 @@ def _library_doc_list(docs: list, *, key_prefix: str) -> None:
     """Inline openable document rows — no separate Open dropdown."""
     for d in docs:
         title = d.get("title") or d["filename"]
+        badge = _role_badge(d)
         meta = (
-            f"`{d['filename']}` · {d.get('doc_type') or '—'} · "
+            f"{badge} · `{d['filename']}` · {d.get('doc_type') or '—'} · "
             f"{d.get('project_id') or '—'} · {d.get('year') or '—'} · "
             f"{d.get('status')} · {str(d.get('created_at') or '')[:10]}"
         )
@@ -698,6 +783,7 @@ def _filter_documents(
     project_id: str | None,
     year: str | None,
     status: str | None,
+    document_role: str | None = None,
 ) -> list:
     q = (query or "").strip().lower()
     out = []
@@ -710,6 +796,8 @@ def _filter_documents(
             continue
         if status and (d.get("status") or "") != status:
             continue
+        if document_role and _document_role_of(d) != document_role:
+            continue
         if q:
             blob = " ".join(
                 [
@@ -717,6 +805,7 @@ def _filter_documents(
                     str(d.get("filename") or ""),
                     str(d.get("project_id") or ""),
                     str(d.get("doc_type") or ""),
+                    str(d.get("document_role") or ""),
                     str(d.get("full_text") or "")[:2000],
                 ]
             ).lower()
@@ -769,7 +858,7 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
     title = doc.get("title") or doc["filename"]
     st.markdown(f"## {title}")
     st.caption(
-        f"`{doc['filename']}` · {doc.get('doc_type') or '—'} · "
+        f"{_role_badge(doc)} · `{doc['filename']}` · {doc.get('doc_type') or '—'} · "
         f"{doc.get('project_id') or '—'} · {doc.get('year') or '—'} · "
         f"{doc.get('status')}"
     )
@@ -801,6 +890,22 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
                 value=doc.get("project_id") or "",
                 key=f"lib-edit-project-{doc_id}",
             )
+            role_options = ["연구문서", "참고자료"]
+            current_role_label = (
+                "참고자료" if _document_role_of(doc) == ROLE_REFERENCE else "연구문서"
+            )
+            new_role_label = st.radio(
+                "문서 역할",
+                role_options,
+                index=role_options.index(current_role_label),
+                horizontal=True,
+                key=f"lib-edit-role-{doc_id}",
+            )
+            new_doc_type = st.text_input(
+                "Type",
+                value=doc.get("doc_type") or "",
+                key=f"lib-edit-type-{doc_id}",
+            )
             new_text = st.text_area(
                 "Body",
                 value=doc.get("full_text") or "",
@@ -814,6 +919,12 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
                         title=new_title.strip(),
                         project_id=new_project.strip(),
                         full_text=new_text,
+                        document_role=(
+                            ROLE_REFERENCE
+                            if new_role_label == "참고자료"
+                            else ROLE_PROJECT
+                        ),
+                        doc_type=new_doc_type.strip() or "other",
                     )
                 st.session_state[edit_key] = False
                 st.session_state.pop(f"ai_summary_{doc_id}", None)
@@ -833,7 +944,7 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
         m1.metric("Project", doc.get("project_id") or "—")
         m2.metric("Type", doc.get("doc_type") or "—")
         m3.metric("Year", str(doc.get("year") or "—"))
-        m4.metric("Chunks", int(doc.get("chunk_count") or 0))
+        m4.metric("Role", _role_badge(doc).strip("[]"))
 
         cache_key = f"ai_summary_{doc_id}"
         st.markdown("#### 요약")
@@ -990,6 +1101,15 @@ def _upload_panel() -> None:
         key="lib_project_id",
     )
     project_id = (custom or selected or "").strip()
+    role_label = st.radio(
+        "문서 역할",
+        ["연구문서", "참고자료"],
+        index=0,
+        horizontal=True,
+        key="lib_document_role",
+        help="연구문서=센터 산출물 · 참고자료=규정/RFP/매뉴얼 등 외부 참고",
+    )
+    document_role = ROLE_REFERENCE if role_label == "참고자료" else ROLE_PROJECT
     uploads = st.file_uploader(
         "Select files",
         type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx"],
@@ -1006,7 +1126,8 @@ def _upload_panel() -> None:
                     st.info(f"{name}: already in Memory")
                 else:
                     st.success(
-                        f"{name}: chunks={item.get('chunks')} facts={item.get('facts')}"
+                        f"{name}: chunks={item.get('chunks')} facts={item.get('facts')} "
+                        f"({item.get('role_label') or '연구문서'})"
                     )
             else:
                 st.error(f"{name}: {item.get('error', 'failed')}")
@@ -1020,6 +1141,7 @@ def _upload_panel() -> None:
                     f.name,
                     repo=repo,
                     project_id=project_id.strip(),
+                    document_role=document_role,
                 )
             row = {
                 "filename": f.name,
@@ -1028,6 +1150,7 @@ def _upload_panel() -> None:
                 "chunks": result.get("chunks"),
                 "facts": result.get("facts"),
                 "error": result.get("error", "failed"),
+                "role_label": role_label,
             }
             results.append(row)
             if result.get("ok") and project_id and not result.get("skipped"):
@@ -1100,8 +1223,17 @@ def _chat_page() -> None:
 
 def _render_evidence(cites: list[dict]) -> None:
     for i, c in enumerate(cites[:5], start=1):
+        # Prefer doc_type from live document when available (for [참고규정]).
+        doc = repo.get_document(str(c.get("document_id") or ""))
+        badge = _role_badge(
+            {
+                "document_role": c.get("document_role")
+                or (doc or {}).get("document_role"),
+                "doc_type": (doc or {}).get("doc_type"),
+            }
+        )
         st.markdown(
-            f"**{i}. `{c['filename']}`** · {c.get('location') or '—'} · "
+            f"**{i}. {badge} `{c['filename']}`** · {c.get('location') or '—'} · "
             f"score={float(c.get('score') or 0):.3f}  \n"
             f"{c.get('snippet') or ''}"
         )
@@ -1664,8 +1796,16 @@ def _proposal_panel() -> None:
         st.warning("Memory 근거가 없습니다. Library에서 센터 자료를 먼저 넣으세요.")
     else:
         for i, c in enumerate(evidence_dicts[:10], start=1):
+            doc = repo.get_document(str(c.get("document_id") or ""))
+            badge = _role_badge(
+                {
+                    "document_role": c.get("document_role")
+                    or (doc or {}).get("document_role"),
+                    "doc_type": (doc or {}).get("doc_type"),
+                }
+            )
             st.markdown(
-                f"**[{i}] {c['filename']} / {c['location']}** "
+                f"**[{i}] {badge} {c['filename']} / {c['location']}** "
                 f"(score={c['score']:.3f})  \n{c['snippet'][:280]}"
             )
 

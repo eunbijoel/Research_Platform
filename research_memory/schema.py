@@ -3,6 +3,13 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+ROLE_PROJECT = "project_document"
+ROLE_REFERENCE = "reference_document"
+
+
+def normalize_document_role(value: str | None) -> str:
+    return ROLE_REFERENCE if (value or "").strip() == ROLE_REFERENCE else ROLE_PROJECT
+
 
 @dataclass
 class TextChunk:
@@ -22,7 +29,8 @@ class DocumentMetadata:
     project_id: str = ""
     authors: list[str] = field(default_factory=list)
     year: int | None = None
-    doc_type: str = "unknown"  # proposal | paper | note | meeting | excel | other
+    doc_type: str = "unknown"  # proposal | paper | note | meeting | excel | regulation | other
+    document_role: str = "project_document"  # project_document | reference_document
     language: str = "ko"
     keywords: list[str] = field(default_factory=list)
     source_filename: str = ""
@@ -64,6 +72,7 @@ class Citation:
     location: str
     snippet: str
     score: float
+    document_role: str = "project_document"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

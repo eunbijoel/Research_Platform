@@ -9,7 +9,7 @@ from research_memory.kb.repository import KnowledgeRepository
 from research_memory.pipeline.chunking import refine_chunks
 from research_memory.pipeline.extractors import extract_chunks
 from research_memory.pipeline.metadata import extract_metadata_and_facts
-from research_memory.schema import ParsedDocument
+from research_memory.schema import ParsedDocument, normalize_document_role
 
 
 def ingest_file(
@@ -17,6 +17,7 @@ def ingest_file(
     *,
     repo: KnowledgeRepository | None = None,
     project_id: str = "",
+    document_role: str = "project_document",
     copy_to_raw: bool = True,
 ) -> dict:
     """
@@ -39,6 +40,7 @@ def ingest_file(
             "skipped": True,
             "document_id": existing["id"],
             "filename": existing["filename"],
+            "document_role": existing.get("document_role") or "project_document",
             "message": "Already ingested (same content hash).",
         }
 
@@ -65,6 +67,7 @@ def ingest_file(
     if project_id:
         meta.project_id = project_id
         meta.extra["project_id_override"] = project_id
+    meta.document_role = normalize_document_role(document_role)
 
     full_text = "\n\n".join(c.text for c in chunks)
     parsed = ParsedDocument(
@@ -93,6 +96,7 @@ def ingest_file(
             "filename": source_path.name,
             "status": "failed",
             "error": parsed.error,
+            "document_role": meta.document_role,
         }
 
     doc_id = repo.insert_document(
@@ -123,6 +127,7 @@ def ingest_file(
         "chunks": len(chunks),
         "facts": len(facts),
         "metadata": meta.to_dict(),
+        "document_role": meta.document_role,
     }
 
 
@@ -132,6 +137,7 @@ def ingest_bytes(
     *,
     repo: KnowledgeRepository | None = None,
     project_id: str = "",
+    document_role: str = "project_document",
 ) -> dict:
     ensure_data_dirs()
     tmp = RAW_DIR / filename
@@ -140,4 +146,10 @@ def ingest_bytes(
     if tmp.exists() and hashlib.sha256(tmp.read_bytes()).hexdigest() != digest:
         tmp = RAW_DIR / f"{digest[:10]}_{filename}"
     tmp.write_bytes(data)
-    return ingest_file(tmp, repo=repo, project_id=project_id, copy_to_raw=False)
+    return ingest_file(
+        tmp,
+        repo=repo,
+        project_id=project_id,
+        document_role=document_role,
+        copy_to_raw=False,
+    )
