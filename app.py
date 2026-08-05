@@ -863,6 +863,8 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
         f"{doc.get('status')}"
     )
 
+    _document_insight_card(doc)
+
     tab_preview, tab_sum, tab_related = st.tabs(["Preview", "Summary", "Related"])
 
     with tab_preview:
@@ -974,6 +976,55 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
                 if cols[1].button("Open", key=f"rel-{r['id']}"):
                     st.session_state.library_selected_id = r["id"]
                     st.rerun()
+
+
+def _document_insight_card(doc: dict) -> None:
+    """Compact Document Insight MVP card above Preview/Summary tabs."""
+    from research_memory.engine.document_insight import (
+        doc_type_label,
+        get_document_insight,
+    )
+
+    insight = get_document_insight(doc)
+    st.markdown("#### Document Insight")
+    if insight:
+        dtype = str(insight.get("document_type") or doc.get("doc_type") or "other")
+        st.markdown(f"**문서 유형:** {doc_type_label(dtype)} (`{dtype}`)")
+        st.markdown(f"**한 줄 요약:** {insight.get('summary') or '—'}")
+        topics = insight.get("key_topics") or []
+        if topics:
+            st.markdown("**주요 주제:** " + " · ".join(str(t) for t in topics))
+        uses = insight.get("recommended_uses") or []
+        if uses:
+            st.markdown("**활용 가능 기능:** " + " · ".join(str(u) for u in uses))
+        if st.button("다시 분석", key=f"insight-rerun-{doc['id']}"):
+            _run_document_insight(doc, regenerate=True)
+        st.markdown("---")
+        return
+
+    st.caption("아직 분석 결과가 없습니다. AI가 이 문서의 역할과 Memory 저장 이유를 정리합니다.")
+    if st.button("문서 분석 실행", key=f"insight-run-{doc['id']}", type="primary"):
+        _run_document_insight(doc, regenerate=False)
+
+
+def _run_document_insight(doc: dict, *, regenerate: bool) -> None:
+    from research_memory.engine.document_insight import generate_document_insight
+
+    with st.spinner("Document Insight 분석 중…"):
+        insight = generate_document_insight(
+            doc.get("full_text") or "",
+            filename=str(doc.get("filename") or ""),
+            existing_doc_type=str(doc.get("doc_type") or ""),
+        )
+    if not insight:
+        st.warning("분석을 완료하지 못했습니다. LLM 연결/응답 JSON을 확인해 주세요.")
+        return
+    try:
+        repo.save_document_insight(doc["id"], insight)
+        st.success("Document Insight를 저장했습니다.")
+        st.rerun()
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"저장 실패: {exc}")
 
 
 def _document_snapshot(doc: dict) -> str:

@@ -118,7 +118,36 @@ def ingest_file(
         ],
     )
     repo.rebuild_index()
-    return {
+
+    insight = None
+    insight_error = ""
+    try:
+        from research_memory.engine.document_insight import generate_document_insight
+
+        insight = generate_document_insight(
+            full_text,
+            filename=source_path.name,
+            existing_doc_type=meta.doc_type,
+        )
+        if insight:
+            repo.save_document_insight(doc_id, insight)
+            meta_dict = meta.to_dict()
+            meta_dict["document_insight"] = insight
+            if insight.get("document_type"):
+                meta_dict["doc_type"] = insight["document_type"]
+        else:
+            insight_error = "insight unavailable or parse failed"
+    except Exception as exc:  # noqa: BLE001 — never fail ingest on insight
+        insight_error = str(exc)
+        insight = None
+
+    meta_out = meta.to_dict()
+    if insight:
+        meta_out["document_insight"] = insight
+        if insight.get("document_type"):
+            meta_out["doc_type"] = insight["document_type"]
+
+    result = {
         "ok": True,
         "skipped": False,
         "document_id": doc_id,
@@ -126,9 +155,14 @@ def ingest_file(
         "status": "ready",
         "chunks": len(chunks),
         "facts": len(facts),
-        "metadata": meta.to_dict(),
+        "metadata": meta_out,
         "document_role": meta.document_role,
     }
+    if insight:
+        result["document_insight"] = insight
+    if insight_error:
+        result["insight_error"] = insight_error
+    return result
 
 
 def ingest_bytes(

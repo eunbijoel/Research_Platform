@@ -265,6 +265,34 @@ class KnowledgeRepository:
         if full_text is not None:
             self.rebuild_index()
 
+    def save_document_insight(
+        self,
+        document_id: str,
+        insight: dict[str, Any],
+        *,
+        sync_doc_type: bool = True,
+    ) -> None:
+        """Merge document_insight into metadata_json. No re-chunk / re-embed."""
+        doc = self.get_document(document_id)
+        if not doc:
+            raise ValueError(f"document not found: {document_id}")
+        meta = dict(doc.get("metadata") or {})
+        meta["document_insight"] = insight
+        dtype = str(insight.get("document_type") or "").strip().lower()
+        new_doc_type = doc.get("doc_type") or "other"
+        if sync_doc_type and dtype:
+            meta["doc_type"] = dtype
+            new_doc_type = dtype
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE documents
+                SET metadata_json = ?, doc_type = ?
+                WHERE id = ?
+                """,
+                (json.dumps(meta, ensure_ascii=False), new_doc_type, document_id),
+            )
+
     def insert_failed_document(
         self,
         *,
