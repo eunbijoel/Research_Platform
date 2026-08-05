@@ -385,8 +385,43 @@ def _library_page() -> None:
 
 
 def _library_projects_view(docs: list) -> None:
-    st.markdown("### Projects")
+    head, add = st.columns([10, 1])
+    head.markdown("### Projects")
+    if add.button("+", key="proj-add", help="새 프로젝트 폴더 추가", use_container_width=True, type="primary"):
+        st.session_state.proj_creating = True
+        st.rerun()
     st.caption("Open a project to see its documents in Memory.")
+
+    if st.session_state.get("proj_creating"):
+        new_name = st.text_input(
+            "새 프로젝트명",
+            placeholder="예: Manufacturing-X",
+            key="proj_create_name",
+        )
+        c1, c2 = st.columns(2)
+        if c1.button("추가", key="proj-create-save", use_container_width=True):
+            name = (new_name or "").strip()
+            existing = {p.get("project_id") for p in repo.list_projects()}
+            existing |= {
+                (d.get("project_id") or "").strip()
+                for d in docs
+                if (d.get("project_id") or "").strip()
+            }
+            if not name:
+                st.error("프로젝트명을 입력하세요.")
+            elif name == "(No project)":
+                st.error("이 이름은 사용할 수 없습니다.")
+            elif name in existing:
+                st.error(f"이미 있는 프로젝트입니다: {name}")
+            else:
+                repo.upsert_project(project_id=name, title=name, status="active")
+                st.session_state.proj_creating = False
+                st.session_state.pop("proj_create_name", None)
+                st.rerun()
+        if c2.button("취소", key="proj-create-cancel", use_container_width=True):
+            st.session_state.proj_creating = False
+            st.session_state.pop("proj_create_name", None)
+            st.rerun()
 
     groups = _group_docs_by_project(docs)
     # Registered projects should appear even when empty (0 documents).
@@ -403,7 +438,7 @@ def _library_projects_view(docs: list) -> None:
         key=lambda kv: (kv[0] == "(No project)", kv[0]),
     )
     if not items:
-        st.info("등록된 프로젝트가 없습니다.")
+        st.info("등록된 프로젝트가 없습니다. + 로 새 폴더를 추가하세요.")
         return
 
     # 3-column compact card grid
