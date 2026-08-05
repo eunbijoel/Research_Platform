@@ -663,7 +663,12 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
             f"{title} 문서 기준으로, Memory 근거를 들어 핵심 내용을 요약해 주세요."
         )
         _go(PAGE_CHAT)
-    if top[2].button("Delete", use_container_width=True, key=f"del-top-{doc_id}"):
+    if top[2].button(
+        "Delete",
+        type="primary",
+        use_container_width=True,
+        key=f"del-top-{doc_id}",
+    ):
         st.session_state[f"confirm_del_{doc_id}"] = True
 
     if st.session_state.get(f"confirm_del_{doc_id}"):
