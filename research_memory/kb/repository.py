@@ -452,6 +452,86 @@ class KnowledgeRepository:
             conn.execute("DELETE FROM milestones WHERE project_id = ?", (project_id,))
             conn.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
 
+    def delete_project_folder(self, project_id: str) -> dict[str, Any]:
+        """Delete project registry + all documents/chunks/facts/milestones for that project."""
+        project_id = (project_id or "").strip()
+        if not project_id:
+            raise ValueError("project_id required")
+        with self._conn() as conn:
+            doc_rows = conn.execute(
+                "SELECT id FROM documents WHERE project_id = ?",
+                (project_id,),
+            ).fetchall()
+            doc_ids = [r["id"] for r in doc_rows]
+            for doc_id in doc_ids:
+                conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
+                conn.execute("DELETE FROM facts WHERE document_id = ?", (doc_id,))
+            conn.execute("DELETE FROM documents WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM milestones WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
+        if doc_ids:
+            self.rebuild_index()
+        return {"ok": True, "project_id": project_id, "deleted_documents": len(doc_ids)}
+
+    def rename_project(self, old_project_id: str, new_project_id: str) -> dict[str, Any]:
+        """Rename a project folder and retarget documents/milestones."""
+        old_id = (old_project_id or "").strip()
+        new_id = (new_project_id or "").strip()
+        if not old_id or not new_id:
+            raise ValueError("old/new project_id required")
+        if old_id == new_id:
+            return {"ok": True, "project_id": new_id, "renamed": False}
+        with self._conn() as conn:
+            clash = conn.execute(
+                "SELECT project_id FROM projects WHERE project_id = ?",
+                (new_id,),
+            ).fetchone()
+            if clash:
+                raise ValueError(f"project already exists: {new_id}")
+            existing = conn.execute(
+                "SELECT * FROM projects WHERE project_id = ?",
+                (old_id,),
+            ).fetchone()
+            if existing:
+                row = dict(existing)
+                conn.execute(
+                    """
+                    INSERT INTO projects (
+                        project_id, title, owner, start_date, end_date, status, notes, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        new_id,
+                        new_id if (row.get("title") or "") == old_id else (row.get("title") or new_id),
+                        row.get("owner") or "",
+                        row.get("start_date") or "",
+                        row.get("end_date") or "",
+                        row.get("status") or "active",
+                        row.get("notes") or "",
+                        row.get("created_at") or _utc_now(),
+                    ),
+                )
+                conn.execute(
+                    "UPDATE milestones SET project_id = ? WHERE project_id = ?",
+                    (new_id, old_id),
+                )
+                conn.execute("DELETE FROM projects WHERE project_id = ?", (old_id,))
+            else:
+                # Project may exist only via documents (no projects-table row).
+                conn.execute(
+                    """
+                    INSERT INTO projects (
+                        project_id, title, owner, start_date, end_date, status, notes, created_at
+                    ) VALUES (?, ?, '', '', '', 'active', '', ?)
+                    """,
+                    (new_id, new_id, _utc_now()),
+                )
+            conn.execute(
+                "UPDATE documents SET project_id = ? WHERE project_id = ?",
+                (new_id, old_id),
+            )
+        return {"ok": True, "project_id": new_id, "from": old_id, "renamed": True}
+
     def add_milestone(
         self,
         *,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 from datetime import date, datetime
@@ -377,7 +378,7 @@ def _library_page() -> None:
         _upload_panel()
 
     st.markdown("### Search")
-    if st.button("Search documents", type="primary", use_container_width=True, key="lib_to_search"):
+    if st.button("Search documents", use_container_width=True, key="lib_to_search"):
         st.session_state.library_view = "search"
         st.rerun()
     st.caption("Search and filter across all documents in Memory.")
@@ -429,31 +430,73 @@ def _project_card(project_id: str, docs: list) -> None:
         or "연구노트" in str(d.get("title") or "")
     )
     doc_n = len(docs)
+    is_orphan = project_id == "(No project)"
+    safe = hashlib.md5(project_id.encode("utf-8")).hexdigest()[:12]
 
-    st.markdown(
-        f"""
-<div style="
-  border:1px solid #d9dde3; border-radius:10px; padding:12px 12px 8px;
-  background:#fff; margin-bottom:4px;">
-  <div style="font-size:16px;font-weight:700;margin:0 0 8px;color:#111827;">{_html_esc(project_id)}</div>
-  <div style="font-size:13px;color:#374151;line-height:1.55;">
-    자료 <b>{doc_n}</b>건 | 연구노트 <b>{note_n}</b>개<br/>
-    years {_html_esc(year_s)}<br/>
-    updated {_html_esc(latest or '—')}
-  </div>
-</div>
-""",
+    title_c, edit_c, del_c = st.columns([6, 1, 1])
+    title_c.markdown(
+        f"<div style='font-size:16px;font-weight:700;color:#111827;padding-top:4px;'>"
+        f"{_html_esc(project_id)}</div>",
         unsafe_allow_html=True,
     )
-    b1, b2 = st.columns(2)
-    if b1.button("Open", key=f"proj-open-{project_id}", use_container_width=True, type="primary"):
+    if not is_orphan:
+        if edit_c.button("✎", key=f"proj-edit-{safe}", help="프로젝트명 변경", use_container_width=True):
+            st.session_state[f"proj_renaming_{safe}"] = True
+            st.session_state[f"proj_rename_src_{safe}"] = project_id
+            st.rerun()
+        if del_c.button("✕", key=f"proj-del-{safe}", help="프로젝트 폴더 삭제", use_container_width=True, type="primary"):
+            st.session_state[f"proj_confirm_del_{safe}"] = True
+            st.session_state[f"proj_del_src_{safe}"] = project_id
+            st.rerun()
+
+    st.caption(f"자료 {doc_n}건 · 연구노트 {note_n}개 · {year_s} · {latest or '—'}")
+
+    if st.session_state.get(f"proj_renaming_{safe}") and st.session_state.get(f"proj_rename_src_{safe}") == project_id:
+        new_name = st.text_input(
+            "새 프로젝트명",
+            value=project_id,
+            key=f"proj-rename-input-{safe}",
+        )
+        s1, s2 = st.columns(2)
+        if s1.button("저장", key=f"proj-rename-save-{safe}", use_container_width=True):
+            try:
+                repo.rename_project(project_id, (new_name or "").strip())
+                st.session_state.pop(f"proj_renaming_{safe}", None)
+                st.session_state.pop(f"proj_rename_src_{safe}", None)
+                if st.session_state.get("library_project_focus") == project_id:
+                    st.session_state.library_project_focus = (new_name or "").strip()
+                st.rerun()
+            except Exception as exc:  # noqa: BLE001
+                st.error(str(exc))
+        if s2.button("취소", key=f"proj-rename-cancel-{safe}", use_container_width=True):
+            st.session_state.pop(f"proj_renaming_{safe}", None)
+            st.session_state.pop(f"proj_rename_src_{safe}", None)
+            st.rerun()
+
+    if st.session_state.get(f"proj_confirm_del_{safe}") and st.session_state.get(f"proj_del_src_{safe}") == project_id:
+        st.warning(f"`{project_id}` 폴더와 자료 {doc_n}건을 삭제할까요?")
+        d1, d2 = st.columns(2)
+        if d1.button("삭제", key=f"proj-del-yes-{safe}", type="primary", use_container_width=True):
+            repo.delete_project_folder(project_id)
+            st.session_state.pop(f"proj_confirm_del_{safe}", None)
+            st.session_state.pop(f"proj_del_src_{safe}", None)
+            if st.session_state.get("library_project_focus") == project_id:
+                st.session_state.pop("library_project_focus", None)
+                st.session_state.library_view = "projects"
+            st.rerun()
+        if d2.button("취소", key=f"proj-del-no-{safe}", use_container_width=True):
+            st.session_state.pop(f"proj_confirm_del_{safe}", None)
+            st.session_state.pop(f"proj_del_src_{safe}", None)
+            st.rerun()
+
+    if st.button("Open", key=f"proj-open-{safe}", use_container_width=True):
         st.session_state.library_view = "project_docs"
         st.session_state.library_project_focus = project_id
         st.rerun()
-    if b2.button("Search", key=f"proj-search-{project_id}", use_container_width=True):
-        st.session_state.library_view = "search"
-        st.session_state.lib_project = project_id
-        st.rerun()
+    st.markdown(
+        "<div style='border-bottom:1px solid #e5e7eb;margin:10px 0 14px;'></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _html_esc(text: str) -> str:
@@ -918,7 +961,23 @@ def _upload_panel() -> None:
         accept_multiple_files=True,
         key="lib_uploads",
     )
+
+    pending = st.session_state.pop("lib_upload_results", None)
+    if pending:
+        for item in pending:
+            name = item.get("filename") or "file"
+            if item.get("ok"):
+                if item.get("skipped"):
+                    st.info(f"{name}: already in Memory")
+                else:
+                    st.success(
+                        f"{name}: chunks={item.get('chunks')} facts={item.get('facts')}"
+                    )
+            else:
+                st.error(f"{name}: {item.get('error', 'failed')}")
+
     if st.button("Upload into Memory", type="primary", disabled=not uploads, key="lib_ingest"):
+        results: list[dict] = []
         for f in uploads or []:
             with st.spinner(f"Ingesting {f.name}…"):
                 result = ingest_bytes(
@@ -927,17 +986,18 @@ def _upload_panel() -> None:
                     repo=repo,
                     project_id=project_id.strip(),
                 )
-            if result.get("ok"):
-                if result.get("skipped"):
-                    st.info(f"{f.name}: already in Memory")
-                else:
-                    st.success(
-                        f"{f.name}: chunks={result.get('chunks')} facts={result.get('facts')}"
-                    )
-                    with st.expander(f"Metadata — {f.name}"):
-                        st.json(result.get("metadata") or {})
-            else:
-                st.error(f"{f.name}: {result.get('error', 'failed')}")
+            row = {
+                "filename": f.name,
+                "ok": bool(result.get("ok")),
+                "skipped": bool(result.get("skipped")),
+                "chunks": result.get("chunks"),
+                "facts": result.get("facts"),
+                "error": result.get("error", "failed"),
+            }
+            results.append(row)
+            if result.get("ok") and project_id and not result.get("skipped"):
+                repo.upsert_project(project_id=project_id, title=project_id)
+        st.session_state.lib_upload_results = results
         st.rerun()
 
 

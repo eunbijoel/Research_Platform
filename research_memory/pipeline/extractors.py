@@ -44,6 +44,11 @@ def extract_chunks(path: Path) -> tuple[str, list[TextChunk], str]:
             return "excel", _excel(path), ""
         if ext == ".hwpx":
             return "hwpx", _hwpx(path), ""
+        if ext == ".hwp":
+            return "hwp", [], (
+                "구형 .hwp(한글 바이너리)는 아직 지원하지 않습니다. "
+                "한글에서 .hwpx로 다시 저장하거나 PDF/DOCX로 변환해 주세요."
+            )
         return "unknown", [], f"Unsupported extension: {ext}"
     except Exception as exc:  # noqa: BLE001 — surface parse failures to ingest
         return ext.lstrip(".") or "unknown", [], str(exc)
@@ -115,6 +120,18 @@ def _excel(path: Path) -> list[TextChunk]:
 
 def _hwpx(path: Path) -> list[TextChunk]:
     """Best-effort HWPX (zip+xml) text extraction without hwpilot."""
+    head = path.read_bytes()[:8]
+    # Classic .hwp is OLE compound; real .hwpx is a ZIP package.
+    if head[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+        raise ValueError(
+            "확장자는 .hwpx지만 실제 파일은 구형 .hwp(한글 바이너리)입니다. "
+            "한글에서 [다른 이름으로 저장] → .hwpx 또는 PDF/DOCX로 변환 후 다시 올려 주세요."
+        )
+    if head[:2] != b"PK":
+        raise ValueError(
+            "유효한 .hwpx(ZIP) 파일이 아닙니다. "
+            "파일이 손상되었거나 확장자만 .hwpx인 다른 형식일 수 있습니다."
+        )
     texts: list[str] = []
     with zipfile.ZipFile(path) as zf:
         section_names = sorted(
