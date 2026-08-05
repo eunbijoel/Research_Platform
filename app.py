@@ -45,7 +45,7 @@ from research_memory.engine.proposal import (
     analyze_rfp,
     build_markdown,
     export_docx_bytes,
-    gather_kb_evidence,
+    gather_kb_evidence_split,
     generate_draft,
     parse_rfp_bytes,
     suggest_roles,
@@ -1786,18 +1786,38 @@ def _render_similarity_result(result: dict) -> None:
 def _proposal_panel() -> None:
     st.subheader("RFP → center draft")
     st.caption(
-        "RFP를 분석하고 Knowledge Base 근거로 우리 센터 파트 초안을 만듭니다. "
-        "전체 제안서 자동 완성이 아닙니다."
+        "전체 제안서 자동완성이 아닙니다. "
+        "RFP + Memory(연구문서/참고규정) 근거로 제출 전 검토용 센터 파트 초안을 만듭니다."
     )
-    project_filter = st.text_input(
-        "KB Project filter (optional)",
-        key="prop_project",
-        placeholder="e.g. DEMO-2026",
+    project_meta = {
+        (p.get("project_id") or "").strip(): p
+        for p in repo.list_projects()
+        if (p.get("project_id") or "").strip()
+    }
+    project_choices = [""] + _rn_project_choices()
+
+    def _prop_project_label(pid: str) -> str:
+        if not pid:
+            return "(전체 — 참고규정은 항상 포함)"
+        title = (project_meta.get(pid) or {}).get("title") or ""
+        title = str(title).strip()
+        if title and title != pid:
+            return f"{pid} · {title}"
+        return pid
+
+    selected_project = st.selectbox(
+        "KB Project filter",
+        options=project_choices,
+        format_func=_prop_project_label,
+        key="prop_project_select",
+        help="연구문서만 필터됩니다. 참고규정(운영요령 등)은 필터와 무관하게 포함됩니다.",
     )
+    project_filter = (selected_project or "").strip() or None
     rfp_file = st.file_uploader(
         "RFP / 공고문",
-        type=["pdf", "docx", "txt", "md"],
+        type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx"],
         key="prop_rfp_upload",
+        help="Library와 동일: PDF/DOCX/TXT/MD/CSV/Excel/HWPX",
     )
     if st.button("Analyze RFP + Match Memory", type="primary", disabled=not rfp_file):
         with st.spinner("Parsing RFP and retrieving KB evidence…"):
@@ -1806,14 +1826,22 @@ def _proposal_panel() -> None:
                 st.error(err)
                 return
             rfp = analyze_rfp(chunks)
-            evidence = gather_kb_evidence(
+            split = gather_kb_evidence_split(
                 rfp,
                 repo=repo,
-                project_id=project_filter.strip() or None,
+                project_id=project_filter,
             )
-            roles = suggest_roles(rfp, evidence)
+            roles = suggest_roles(rfp, split["combined"])
             st.session_state["prop_rfp_result"] = rfp
-            st.session_state["prop_evidence"] = [c.to_dict() for c in evidence]
+            st.session_state["prop_research_evidence"] = [
+                c.to_dict() for c in split["research"]
+            ]
+            st.session_state["prop_reference_evidence"] = [
+                c.to_dict() for c in split["reference"]
+            ]
+            st.session_state["prop_evidence"] = [
+                c.to_dict() for c in split["combined"]
+            ]
             st.session_state["prop_roles"] = roles
             st.session_state.pop("prop_draft", None)
             st.session_state.pop("prop_selected", None)
@@ -1841,24 +1869,52 @@ def _proposal_panel() -> None:
             }
         )
 
-    evidence_dicts = st.session_state.get("prop_evidence") or []
-    st.markdown(f"### KB evidence ({len(evidence_dicts)})")
-    if not evidence_dicts:
+    research_dicts = st.session_state.get("prop_research_evidence") or []
+    reference_dicts = st.session_state.get("prop_reference_evidence") or []
+    st.markdown(
+        f"### KB evidence "
+        f"(연구문서 {len(research_dicts)} · 참고규정 {len(reference_dicts)})"
+    )
+    if not research_dicts and not reference_dicts:
         st.warning("Memory 근거가 없습니다. Library에서 센터 자료를 먼저 넣으세요.")
     else:
-        for i, c in enumerate(evidence_dicts[:10], start=1):
-            doc = repo.get_document(str(c.get("document_id") or ""))
-            badge = _role_badge(
-                {
-                    "document_role": c.get("document_role")
-                    or (doc or {}).get("document_role"),
-                    "doc_type": (doc or {}).get("doc_type"),
-                }
+        st.markdown("#### [연구문서]")
+        if not research_dicts:
+            st.caption("연구문서 근거 없음 — Project filter 또는 연구문서 업로드를 확인하세요.")
+        else:
+            for i, c in enumerate(research_dicts[:8], start=1):
+                doc = repo.get_document(str(c.get("document_id") or ""))
+                badge = _role_badge(
+                    {
+                        "document_role": c.get("document_role")
+                        or (doc or {}).get("document_role"),
+                        "doc_type": (doc or {}).get("doc_type"),
+                    }
+                )
+                st.markdown(
+                    f"**[{i}] {badge} {c['filename']} / {c['location']}** "
+                    f"(score={c['score']:.3f})  \n{c['snippet'][:280]}"
+                )
+        st.markdown("#### [참고규정]")
+        if not reference_dicts:
+            st.warning(
+                "참고규정 근거가 없습니다. Library의 **Center 자료**에 "
+                "운영요령 등 참고자료(reference)가 있는지 확인하세요."
             )
-            st.markdown(
-                f"**[{i}] {badge} {c['filename']} / {c['location']}** "
-                f"(score={c['score']:.3f})  \n{c['snippet'][:280]}"
-            )
+        else:
+            for i, c in enumerate(reference_dicts[:8], start=1):
+                doc = repo.get_document(str(c.get("document_id") or ""))
+                badge = _role_badge(
+                    {
+                        "document_role": c.get("document_role")
+                        or (doc or {}).get("document_role"),
+                        "doc_type": (doc or {}).get("doc_type"),
+                    }
+                )
+                st.markdown(
+                    f"**[{i}] {badge} {c['filename']} / {c['location']}** "
+                    f"(score={c['score']:.3f})  \n{c['snippet'][:280]}"
+                )
 
     roles = st.session_state.get("prop_roles") or []
     st.markdown("### Role candidates")
@@ -1871,8 +1927,14 @@ def _proposal_panel() -> None:
 
     if st.button("Generate center draft", type="primary", disabled=not selected):
         with st.spinner("Generating draft from Memory evidence…"):
-            cites = _citations_from_dicts(evidence_dicts)
-            draft = generate_draft(rfp, selected, cites)
+            research_cites = _citations_from_dicts(research_dicts)
+            reference_cites = _citations_from_dicts(reference_dicts)
+            draft = generate_draft(
+                rfp,
+                selected,
+                research_evidence=research_cites,
+                reference_evidence=reference_cites,
+            )
             st.session_state["prop_draft"] = draft
             st.session_state["prop_selected"] = selected
 
@@ -1885,12 +1947,20 @@ def _proposal_panel() -> None:
             ("center_role", "담당 역할"),
             ("work_details", "수행내용"),
             ("deliverables", "산출물"),
+            ("compliance_notes", "운영요령·준수 포인트"),
             ("open_questions", "확인 필요"),
         ):
             st.markdown(f"**{label}**")
             st.write(draft.get(key, ""))
-        cites = _citations_from_dicts(evidence_dicts)
-        md = build_markdown(rfp, selected, draft, cites)
+        research_cites = _citations_from_dicts(research_dicts)
+        reference_cites = _citations_from_dicts(reference_dicts)
+        md = build_markdown(
+            rfp,
+            selected,
+            draft,
+            research_evidence=research_cites,
+            reference_evidence=reference_cites,
+        )
         st.download_button("Download Markdown", md, file_name="proposal_draft.md")
         docx_bytes = export_docx_bytes(rfp, selected, draft)
         st.download_button(

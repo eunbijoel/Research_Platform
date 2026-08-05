@@ -13,7 +13,12 @@ from research_memory.engine.retrieval import retrieve
 from research_memory.kb.repository import KnowledgeRepository
 from research_memory.pipeline.chunking import refine_chunks
 from research_memory.pipeline.extractors import extract_chunks_from_bytes
-from research_memory.schema import Citation
+from research_memory.schema import (
+    ROLE_PROJECT,
+    ROLE_REFERENCE,
+    Citation,
+    normalize_document_role,
+)
 
 NOT_FOUND = "확인 필요"
 
@@ -41,6 +46,7 @@ DRAFT_KEYS = [
     "kpi_draft",
     "consortium_role",
     "expected_effects",
+    "compliance_notes",
     "open_questions",
 ]
 
@@ -53,8 +59,18 @@ DRAFT_LABELS = {
     "kpi_draft": "KPI 초안",
     "consortium_role": "컨소시엄 내 역할",
     "expected_effects": "기대효과",
+    "compliance_notes": "운영요령·참고규정 준수 포인트",
     "open_questions": "추가 확인이 필요한 사항",
 }
+
+_REFERENCE_QUERIES = [
+    "산업기술혁신사업 공통 운영요령",
+    "연구개발비 계상 산정 기준",
+    "연구시설 장비 현물 계상",
+    "성과관리 보고 의무",
+    "제재 참여제한",
+    "회의비 인건비 사용 제한",
+]
 
 
 def parse_rfp_bytes(data: bytes, filename: str) -> tuple[list[dict[str, str]], str]:
@@ -111,47 +127,64 @@ def gather_kb_evidence(
     top_k_per_query: int = 4,
     project_id: str | None = None,
 ) -> list[Citation]:
-    """Retrieve Memory evidence for RFP requirements (Phase 3 core)."""
+    """Backward-compatible combined evidence (research + reference)."""
+    split = gather_kb_evidence_split(
+        rfp,
+        repo=repo,
+        top_k_per_query=top_k_per_query,
+        project_id=project_id,
+    )
+    return split["combined"]
+
+
+def gather_kb_evidence_split(
+    rfp: dict[str, Any],
+    *,
+    repo: KnowledgeRepository | None = None,
+    top_k_per_query: int = 4,
+    project_id: str | None = None,
+) -> dict[str, list[Citation]]:
+    """
+    Retrieve Memory evidence split by document_role.
+
+    - research: project_document (optional project_id filter)
+    - reference: reference_document (project filter ignored so 운영요령 survives)
+    """
     repo = repo or KnowledgeRepository()
-    queries: list[str] = []
-    for key in ("project_name", "purpose"):
-        val = rfp.get(key)
-        if isinstance(val, str) and val and val != NOT_FOUND:
-            queries.append(val)
-    for key in ("mandatory_requirements", "tech_requirements", "kpi"):
-        items = rfp.get(key) or []
-        if isinstance(items, list):
-            for item in items:
-                if isinstance(item, str) and item and item != NOT_FOUND:
-                    queries.append(item)
-        elif isinstance(items, str) and items != NOT_FOUND:
-            queries.append(items)
+    research_queries = _research_queries(rfp)
+    reference_queries = _reference_queries(rfp)
 
-    if not queries:
-        queries = ["연구 역량 제안서 산출물 센터 역할"]
-
-    seen: set[tuple[str, str, str]] = set()
-    citations: list[Citation] = []
-    for q in queries[:12]:
-        for c in retrieve(q, repo=repo, top_k=top_k_per_query):
-            if project_id:
-                doc = repo.get_document(c.document_id) or {}
-                if (doc.get("project_id") or "") != project_id:
-                    continue
-            key = (c.document_id, c.location, c.snippet[:80])
-            if key in seen:
-                continue
-            seen.add(key)
-            citations.append(c)
-    citations.sort(key=lambda x: -x.score)
-    return citations[:24]
+    research = _retrieve_filtered(
+        research_queries,
+        repo=repo,
+        top_k_per_query=top_k_per_query,
+        project_id=project_id,
+        role=ROLE_PROJECT,
+        prefer_regulation=False,
+        limit=16,
+    )
+    reference = _retrieve_filtered(
+        reference_queries,
+        repo=repo,
+        top_k_per_query=top_k_per_query,
+        project_id=None,
+        role=ROLE_REFERENCE,
+        prefer_regulation=True,
+        limit=12,
+    )
+    combined = _merge_citations(research + reference, limit=28)
+    return {
+        "research": research,
+        "reference": reference,
+        "combined": combined,
+    }
 
 
 def suggest_roles(
     rfp: dict[str, Any],
     evidence: list[Citation],
 ) -> list[dict[str, Any]]:
-    evidence_text = _evidence_text(evidence)
+    evidence_text = _evidence_text(evidence, label="연구문서+참고규정")
     if not llm_available():
         return _heuristic_roles(rfp, evidence)
 
@@ -163,6 +196,7 @@ JSON 배열만 출력. 각 원소 키: role, reason, related_requirements, evide
 - evidence는 KB 근거에 실제로 있는 내용만, 파일명을 함께 표시. 없으면 "{NOT_FOUND}"
 - 근거 없는 추론에는 "[AI 제안]" 표시
 - 전체 제안서 완성이 아니라 우리 센터 파트만
+- 기술 역량은 연구문서, 예산/의무/제재는 참고규정 근거를 구분해서 언급
 
 [RFP 분석]
 {json.dumps(rfp, ensure_ascii=False, indent=2)}
@@ -183,21 +217,37 @@ JSON 배열만 출력. 각 원소 키: role, reason, related_requirements, evide
 def generate_draft(
     rfp: dict[str, Any],
     selected_role: dict[str, Any],
-    evidence: list[Citation],
+    evidence: list[Citation] | None = None,
+    *,
+    research_evidence: list[Citation] | None = None,
+    reference_evidence: list[Citation] | None = None,
 ) -> dict[str, Any]:
-    evidence_text = _evidence_text(evidence)
+    research = list(research_evidence or [])
+    reference = list(reference_evidence or [])
+    if evidence and not research and not reference:
+        # legacy single-list callers
+        research, reference = _split_by_role(evidence)
+
+    combined = _merge_citations(research + reference, limit=28)
+    research_text = _evidence_text(research, label="연구문서")
+    reference_text = _evidence_text(reference, label="참고규정")
+
     if not llm_available():
-        return _heuristic_draft(rfp, selected_role, evidence)
+        return _heuristic_draft(rfp, selected_role, combined, reference)
 
     prompt = f"""당신은 공공 R&D 컨소시엄 제안서의 "우리 센터 담당 파트" 초안 작성 보조 도구입니다.
 전체 제안서를 완성하지 말고 우리 센터 부분만 작성하세요.
+제출 전 검토용 고품질 초안을 목표로 합니다.
 JSON 객체만 출력. 키: {", ".join(DRAFT_KEYS)} (모두 문자열)
 
 규칙:
-- 문장 앞에 [자료 근거], [AI 제안], [확인 필요] 중 하나
-- [자료 근거]는 KB 근거에 실제 있는 내용만, 가능하면 파일명 표기
-- 수치·예산·기업명은 KB에 없으면 [확인 필요]
-- 과거 문장 복붙 금지, 이번 RFP에 맞게 작성
+- 문장 앞에 [연구문서], [참고규정], [AI 제안], [확인 필요] 중 하나를 붙이세요.
+- 기술·역할·수행내용·산출물·KPI는 가능하면 [연구문서] 근거를 사용하세요.
+- 예산·연구비 계상·장비/현물·성과관리·제재/참여제한·경비 제한은 [참고규정] 근거를 사용하세요.
+- [연구문서]/[참고규정]은 아래에 실제 있는 내용만, 가능하면 파일명 표기.
+- 수치·예산·기업명은 근거에 없으면 [확인 필요].
+- compliance_notes에는 운영요령/참고규정 기준의 준수·주의 포인트를 3~6문장으로 정리하세요.
+- 과거 문장 복붙 금지, 이번 RFP에 맞게 작성.
 
 [RFP 분석]
 {json.dumps(rfp, ensure_ascii=False, indent=2)}
@@ -205,17 +255,22 @@ JSON 객체만 출력. 키: {", ".join(DRAFT_KEYS)} (모두 문자열)
 [선택한 역할]
 {json.dumps(selected_role, ensure_ascii=False, indent=2)}
 
-[Knowledge Base 근거]
-{evidence_text}
+[연구문서 근거]
+{research_text}
+
+[참고규정 근거]
+{reference_text}
 """
     try:
         raw = generate_text(prompt)
         draft = _parse_draft(raw)
-        draft["citations"] = [c.to_dict() for c in evidence]
+        draft["citations"] = [c.to_dict() for c in combined]
+        draft["research_citations"] = [c.to_dict() for c in research]
+        draft["reference_citations"] = [c.to_dict() for c in reference]
         draft["mode"] = "llm"
         return draft
     except LLMConnectionError as exc:
-        draft = _heuristic_draft(rfp, selected_role, evidence)
+        draft = _heuristic_draft(rfp, selected_role, combined, reference)
         draft["error"] = str(exc)
         return draft
 
@@ -235,18 +290,40 @@ def run_proposal_pipeline(
         return {"ok": False, "error": err}
 
     rfp = analyze_rfp(chunks)
-    evidence = gather_kb_evidence(rfp, repo=repo, project_id=project_id)
+    split = gather_kb_evidence_split(rfp, repo=repo, project_id=project_id)
+    evidence = split["combined"]
     roles = suggest_roles(rfp, evidence)
     if not roles:
-        roles = [{"role": NOT_FOUND, "reason": NOT_FOUND, "related_requirements": NOT_FOUND, "evidence": NOT_FOUND, "open_questions": "역할 후보 없음"}]
+        roles = [
+            {
+                "role": NOT_FOUND,
+                "reason": NOT_FOUND,
+                "related_requirements": NOT_FOUND,
+                "evidence": NOT_FOUND,
+                "open_questions": "역할 후보 없음",
+            }
+        ]
     idx = max(0, min(selected_role_index, len(roles) - 1))
     selected = roles[idx]
-    draft = generate_draft(rfp, selected, evidence)
-    md = build_markdown(rfp, selected, draft, evidence)
+    draft = generate_draft(
+        rfp,
+        selected,
+        research_evidence=split["research"],
+        reference_evidence=split["reference"],
+    )
+    md = build_markdown(
+        rfp,
+        selected,
+        draft,
+        research_evidence=split["research"],
+        reference_evidence=split["reference"],
+    )
     return {
         "ok": True,
         "rfp": rfp,
         "evidence": [c.to_dict() for c in evidence],
+        "research_evidence": [c.to_dict() for c in split["research"]],
+        "reference_evidence": [c.to_dict() for c in split["reference"]],
         "roles": roles,
         "selected_role": selected,
         "draft": draft,
@@ -260,11 +337,21 @@ def build_markdown(
     selected_role: dict[str, Any],
     draft: dict[str, Any],
     evidence: list[Citation] | list[dict[str, Any]] | None = None,
+    *,
+    research_evidence: list[Citation] | list[dict[str, Any]] | None = None,
+    reference_evidence: list[Citation] | list[dict[str, Any]] | None = None,
 ) -> str:
+    research = list(research_evidence or [])
+    reference = list(reference_evidence or [])
+    if evidence and not research and not reference:
+        research = list(evidence)
+
     lines = [
         f"# 제안 초안 - {rfp.get('project_name', NOT_FOUND)}",
         "",
         f"_생성일시: {datetime.now().strftime('%Y-%m-%d %H:%M')}_",
+        "",
+        "> 제출 전 검토용 센터 파트 초안입니다. 전체 제안서 자동완성이 아닙니다.",
         "",
         "## 1. RFP 핵심 정보",
         f"- 사업 목적: {rfp.get('purpose', NOT_FOUND)}",
@@ -283,25 +370,21 @@ def build_markdown(
         lines.append(str(draft.get(key, NOT_FOUND)))
         lines.append("")
 
-    if evidence:
+    if research or reference:
         lines.append("## 4. Knowledge Base 근거")
-        for i, c in enumerate(evidence, start=1):
-            if isinstance(c, Citation):
-                lines.append(f"[{i}] {c.filename} / {c.location} (score={c.score:.3f})")
-                lines.append(c.snippet)
-            else:
-                lines.append(
-                    f"[{i}] {c.get('filename')} / {c.get('location')} "
-                    f"(score={float(c.get('score', 0)):.3f})"
-                )
-                lines.append(str(c.get("snippet", "")))
-            lines.append("")
+        if research:
+            lines.append("### 연구문서")
+            lines.extend(_format_evidence_lines(research, start=1))
+        if reference:
+            start = len(research) + 1
+            lines.append("### 참고규정")
+            lines.extend(_format_evidence_lines(reference, start=start))
 
     lines.extend(
         [
             "---",
             "※ AI 초안입니다. `[확인 필요]` 항목은 담당자 검토가 필요합니다. "
-            "전체 제안서 자동 완성이 아니라 Research Memory 근거 기반 재사용 초안입니다.",
+            "기술 근거는 연구문서, 예산·의무·제재는 참고규정(운영요령 등)을 우선 사용합니다.",
         ]
     )
     return "\n".join(lines)
@@ -315,6 +398,7 @@ def export_docx_bytes(
     document = Document()
     document.add_heading(f"제안 초안 - {rfp.get('project_name', NOT_FOUND)}", level=0)
     document.add_paragraph(f"생성일시: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    document.add_paragraph("제출 전 검토용 센터 파트 초안 (전체 제안서 자동완성 아님)")
     document.add_heading("선택한 역할", level=1)
     document.add_paragraph(f"역할: {selected_role.get('role', NOT_FOUND)}")
     document.add_paragraph(f"이유: {selected_role.get('reason', NOT_FOUND)}")
@@ -329,6 +413,113 @@ def export_docx_bytes(
 
 # --- helpers ---
 
+def _research_queries(rfp: dict[str, Any]) -> list[str]:
+    queries: list[str] = []
+    for key in ("project_name", "purpose"):
+        val = rfp.get(key)
+        if isinstance(val, str) and val and val != NOT_FOUND:
+            queries.append(val)
+    for key in ("mandatory_requirements", "tech_requirements", "kpi"):
+        items = rfp.get(key) or []
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, str) and item and item != NOT_FOUND:
+                    queries.append(item)
+        elif isinstance(items, str) and items != NOT_FOUND:
+            queries.append(items)
+    if not queries:
+        queries = ["연구 역량 제안서 산출물 센터 역할"]
+    return queries[:12]
+
+
+def _reference_queries(rfp: dict[str, Any]) -> list[str]:
+    queries = list(_REFERENCE_QUERIES)
+    for key in ("budget", "duration", "consortium_conditions"):
+        val = rfp.get(key)
+        if isinstance(val, str) and val and val != NOT_FOUND:
+            queries.append(val)
+    return queries[:10]
+
+
+def _retrieve_filtered(
+    queries: list[str],
+    *,
+    repo: KnowledgeRepository,
+    top_k_per_query: int,
+    project_id: str | None,
+    role: str,
+    prefer_regulation: bool,
+    limit: int,
+) -> list[Citation]:
+    seen: set[tuple[str, str, str]] = set()
+    citations: list[Citation] = []
+    for q in queries:
+        for c in retrieve(q, repo=repo, top_k=top_k_per_query):
+            doc = repo.get_document(c.document_id) or {}
+            doc_role = normalize_document_role(
+                c.document_role or doc.get("document_role")
+            )
+            if doc_role != role:
+                continue
+            if project_id and (doc.get("project_id") or "") != project_id:
+                continue
+            # attach role/doc_type for downstream labeling
+            c.document_role = doc_role
+            key = (c.document_id, c.location, c.snippet[:80])
+            if key in seen:
+                continue
+            seen.add(key)
+            # slight boost for regulation docs when collecting reference evidence
+            score = c.score
+            if prefer_regulation and (doc.get("doc_type") or "").lower() == "regulation":
+                score = float(score) + 0.01
+            citations.append(
+                Citation(
+                    document_id=c.document_id,
+                    filename=c.filename,
+                    location=c.location,
+                    snippet=c.snippet,
+                    score=score,
+                    document_role=doc_role,
+                )
+            )
+    citations.sort(
+        key=lambda x: (
+            0
+            if prefer_regulation
+            and "운영요령" in (x.filename or "")
+            else 1,
+            -x.score,
+        )
+    )
+    return citations[:limit]
+
+
+def _merge_citations(items: list[Citation], *, limit: int) -> list[Citation]:
+    seen: set[tuple[str, str, str]] = set()
+    out: list[Citation] = []
+    for c in items:
+        key = (c.document_id, c.location, c.snippet[:80])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(c)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _split_by_role(evidence: list[Citation]) -> tuple[list[Citation], list[Citation]]:
+    research: list[Citation] = []
+    reference: list[Citation] = []
+    for c in evidence:
+        if normalize_document_role(c.document_role) == ROLE_REFERENCE:
+            reference.append(c)
+        else:
+            research.append(c)
+    return research, reference
+
+
 def _chunks_to_text(chunks: list[dict[str, str]], max_chars: int = 14000) -> str:
     parts: list[str] = []
     total = 0
@@ -342,15 +533,42 @@ def _chunks_to_text(chunks: list[dict[str, str]], max_chars: int = 14000) -> str
     return "\n".join(parts)
 
 
-def _evidence_text(evidence: list[Citation]) -> str:
+def _evidence_text(evidence: list[Citation], *, label: str = "근거") -> str:
     if not evidence:
-        return "(Knowledge Base 근거 없음 — 문서를 먼저 인제스트하세요)"
+        return f"({label} 없음)"
     blocks = []
     for i, c in enumerate(evidence, start=1):
+        role = normalize_document_role(c.document_role)
+        tag = "[참고규정]" if role == ROLE_REFERENCE else "[연구문서]"
         blocks.append(
-            f"[{i}] file={c.filename} | location={c.location} | score={c.score:.3f}\n{c.snippet}"
+            f"[{i}] {tag} file={c.filename} | location={c.location} | score={c.score:.3f}\n{c.snippet}"
         )
     return "\n\n".join(blocks)
+
+
+def _format_evidence_lines(
+    evidence: list[Citation] | list[dict[str, Any]],
+    *,
+    start: int,
+) -> list[str]:
+    lines: list[str] = []
+    for offset, c in enumerate(evidence):
+        i = start + offset
+        if isinstance(c, Citation):
+            role = normalize_document_role(c.document_role)
+            tag = "[참고규정]" if role == ROLE_REFERENCE else "[연구문서]"
+            lines.append(f"[{i}] {tag} {c.filename} / {c.location} (score={c.score:.3f})")
+            lines.append(c.snippet)
+        else:
+            role = normalize_document_role(c.get("document_role"))
+            tag = "[참고규정]" if role == ROLE_REFERENCE else "[연구문서]"
+            lines.append(
+                f"[{i}] {tag} {c.get('filename')} / {c.get('location')} "
+                f"(score={float(c.get('score', 0)):.3f})"
+            )
+            lines.append(str(c.get("snippet", "")))
+        lines.append("")
+    return lines
 
 
 def _empty_rfp() -> dict[str, Any]:
@@ -407,7 +625,7 @@ def _heuristic_rfp(source: str, chunks: list[dict[str, str]]) -> dict[str, Any]:
 
 def _heuristic_roles(rfp: dict[str, Any], evidence: list[Citation]) -> list[dict[str, Any]]:
     ev = (
-        f"[자료 근거] {evidence[0].filename}: {evidence[0].snippet[:160]}"
+        f"[연구문서] {evidence[0].filename}: {evidence[0].snippet[:160]}"
         if evidence
         else NOT_FOUND
     )
@@ -428,23 +646,33 @@ def _heuristic_draft(
     rfp: dict[str, Any],
     selected_role: dict[str, Any],
     evidence: list[Citation],
+    reference: list[Citation] | None = None,
 ) -> dict[str, Any]:
     cite = (
-        f"[자료 근거] ({evidence[0].filename}) {evidence[0].snippet[:220]}"
+        f"[연구문서] ({evidence[0].filename}) {evidence[0].snippet[:220]}"
         if evidence
-        else f"[확인 필요] KB 근거 없음"
+        else "[확인 필요] KB 근거 없음"
+    )
+    ref = reference or []
+    compliance = (
+        f"[참고규정] ({ref[0].filename}) {ref[0].snippet[:220]}"
+        if ref
+        else "[확인 필요] 참고규정(운영요령) 근거 없음 — Center 자료에 참고자료를 확인하세요."
     )
     draft = {key: f"[확인 필요] LLM offline — {key}" for key in DRAFT_KEYS}
     draft["necessity"] = (
-        f"[자료 근거] 사업명: {rfp.get('project_name', NOT_FOUND)}. "
+        f"[연구문서] 사업명: {rfp.get('project_name', NOT_FOUND)}. "
         f"Memory 기반 재사용으로 제안 효율을 높일 필요가 있음."
     )
     draft["center_role"] = (
-        f"[자료 근거] 역할: {selected_role.get('role', NOT_FOUND)}. {cite}"
+        f"[연구문서] 역할: {selected_role.get('role', NOT_FOUND)}. {cite}"
     )
     draft["work_details"] = cite
+    draft["compliance_notes"] = compliance
     draft["open_questions"] = "[확인 필요] LLM 연결 후 초안 품질을 재생성하세요."
     draft["citations"] = [c.to_dict() for c in evidence]
+    draft["research_citations"] = [c.to_dict() for c in evidence]
+    draft["reference_citations"] = [c.to_dict() for c in ref]
     draft["mode"] = "heuristic"
     return draft
 
