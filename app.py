@@ -90,9 +90,9 @@ MAIN_NAV = [
     (PAGE_LIBRARY, "📚 라이브러리"),
     (PAGE_CHAT, "💬 채팅"),
     (PAGE_RESEARCH_NOTE, "📝 연구노트"),
+    (PAGE_PROPOSAL, "🖊️ 제안서"),
 ]
 FUTURE_NAV = [
-    (PAGE_PROPOSAL, "Proposal Intelligence"),
     (PAGE_SIMILARITY, "Similarity Intelligence"),
     (PAGE_MILESTONE, "Milestone Intelligence"),
 ]
