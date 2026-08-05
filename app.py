@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import re
 import sys
 from datetime import date, datetime
@@ -14,7 +13,6 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from research_memory.cli import cmd_seed_demo
 from research_memory.config import (
     EMBED_MODEL,
     INDEX_PATH,
@@ -60,7 +58,6 @@ from research_memory.engine.tracking import (
     auto_link_milestones,
     gap_report,
     project_timeline,
-    seed_demo_project,
 )
 from research_memory.kb.repository import KnowledgeRepository
 from research_memory.schema import Citation
@@ -276,17 +273,12 @@ def _home_page() -> None:
         )
         c1, c2, c3 = st.columns(3)
         c1.metric("Documents", 0)
-        c2.metric("Projects", 0)
+        c2.metric("Projects", stats["project_count"])
         c3.metric("Knowledge Chunks", 0)
 
-        a1, a2 = st.columns(2)
-        if a1.button("+ Upload", type="primary", use_container_width=True):
+        st.info("과제는 준비되어 있습니다. Library에서 프로젝트별 자료를 업로드하세요.")
+        if st.button("+ Upload", type="primary", use_container_width=True):
             _go(PAGE_LIBRARY, focus_upload=True)
-        if a2.button("Load Demo Dataset", use_container_width=True):
-            with st.spinner("Loading demo documents into Memory…"):
-                cmd_seed_demo(argparse.Namespace())
-            st.success("Demo dataset loaded.")
-            st.rerun()
 
         st.markdown("---")
         st.markdown("### How It Works")
@@ -396,10 +388,22 @@ def _library_projects_view(docs: list) -> None:
     st.caption("Open a project to see its documents in Memory.")
 
     groups = _group_docs_by_project(docs)
+    # Registered projects should appear even when empty (0 documents).
+    for p in repo.list_projects():
+        pid = (p.get("project_id") or "").strip()
+        if pid and pid not in groups:
+            groups[pid] = []
+    # Hide empty orphan bucket.
+    if "(No project)" in groups and not groups["(No project)"]:
+        groups.pop("(No project)", None)
+
     items = sorted(
         groups.items(),
-        key=lambda kv: (-len(kv[1]), kv[0]),
+        key=lambda kv: (kv[0] == "(No project)", kv[0]),
     )
+    if not items:
+        st.info("등록된 프로젝트가 없습니다.")
+        return
 
     # 3-column compact card grid
     for i in range(0, len(items), 3):
@@ -895,11 +899,19 @@ def _tokens(text: str) -> set[str]:
 
 
 def _upload_panel() -> None:
-    project_id = st.text_input(
-        "Project ID (optional)",
-        placeholder="e.g. KETI-2026-001",
+    project_choices = [""] + _rn_project_choices()
+    selected = st.selectbox(
+        "Project",
+        options=project_choices,
+        format_func=lambda x: "(선택 안 함)" if x == "" else x,
+        key="lib_project_select",
+    )
+    custom = st.text_input(
+        "또는 새 Project ID 직접 입력",
+        placeholder="예: 신규과제명",
         key="lib_project_id",
     )
+    project_id = (custom or selected or "").strip()
     uploads = st.file_uploader(
         "Select files",
         type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx"],
@@ -1609,15 +1621,9 @@ def _milestone_panel() -> None:
         "과제·마일스톤을 등록하고, Memory에 적재된 산출물과 대조해 갭/지연을 추적합니다."
     )
 
-    if st.button("Seed DEMO-2026 project + milestones"):
-        result = seed_demo_project(repo=repo, project_id="DEMO-2026")
-        st.success(result)
-
     with st.expander("Create / update project", expanded=False):
-        pid = st.text_input("Project ID", value="DEMO-2026", key="mile_pid")
-        title = st.text_input(
-            "Title", value="Research Memory Platform 데모 과제", key="mile_title"
-        )
+        pid = st.text_input("Project ID", key="mile_pid")
+        title = st.text_input("Title", key="mile_title")
         owner = st.text_input("Owner", key="mile_owner")
         c1, c2 = st.columns(2)
         start = c1.text_input("Start (YYYY-MM-DD)", key="mile_start")
