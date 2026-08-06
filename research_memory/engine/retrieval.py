@@ -10,8 +10,14 @@ def retrieve(
     *,
     repo: KnowledgeRepository | None = None,
     top_k: int = RETRIEVAL_TOP_K,
+    exclude_project_ids: list[str] | set[str] | None = None,
 ) -> list[Citation]:
-    citations, _backend = retrieve_with_backend(query, repo=repo, top_k=top_k)
+    citations, _backend = retrieve_with_backend(
+        query,
+        repo=repo,
+        top_k=top_k,
+        exclude_project_ids=exclude_project_ids,
+    )
     return citations
 
 
@@ -20,20 +26,25 @@ def retrieve_with_backend(
     *,
     repo: KnowledgeRepository | None = None,
     top_k: int = RETRIEVAL_TOP_K,
+    exclude_project_ids: list[str] | set[str] | None = None,
 ) -> tuple[list[Citation], str]:
     repo = repo or KnowledgeRepository()
-    hits = repo.search(query, top_k=top_k)
+    excluded = {str(x).strip() for x in (exclude_project_ids or []) if str(x).strip()}
+    fetch_k = max(top_k * 4, top_k) if excluded else top_k
+    hits = repo.search(query, top_k=fetch_k)
     backend = str(hits[0].get("retrieval_backend", "none")) if hits else "none"
     citations: list[Citation] = []
     for hit in hits:
-        snippet = hit["text"].strip()
+        doc_id = str(hit.get("document_id") or "")
+        doc = repo.get_document(doc_id) or {}
+        if excluded:
+            pid = str(doc.get("project_id") or "").strip()
+            if pid and pid in excluded:
+                continue
+        snippet = (hit.get("text") or "").strip()
         if len(snippet) > 420:
             snippet = snippet[:417] + "..."
-        role = hit.get("document_role")
-        if not role:
-            doc = repo.get_document(str(hit.get("document_id") or ""))
-            if doc:
-                role = doc.get("document_role")
+        role = hit.get("document_role") or doc.get("document_role")
         citations.append(
             Citation(
                 document_id=hit["document_id"],
@@ -44,4 +55,6 @@ def retrieve_with_backend(
                 document_role=normalize_document_role(role),
             )
         )
+        if len(citations) >= top_k:
+            break
     return citations, backend

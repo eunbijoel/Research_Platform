@@ -164,7 +164,61 @@ def _last_indexed_label() -> str:
     return datetime.fromtimestamp(max(times)).strftime("%Y-%m-%d %H:%M")
 
 
+def _inject_ui_css() -> None:
+    st.markdown(
+        """
+<style>
+/* Unify expander header height across Chat / Proposal / Library */
+div[data-testid="stExpander"] > details {
+  border: 1px solid rgba(49, 51, 63, 0.18) !important;
+  border-radius: 0.5rem !important;
+  background: rgba(250, 250, 252, 0.95);
+}
+div[data-testid="stExpander"] > details > summary {
+  min-height: 2.75rem !important;
+  display: flex !important;
+  align-items: center !important;
+  padding-top: 0.55rem !important;
+  padding-bottom: 0.55rem !important;
+}
+div[data-testid="stExpander"] > details > summary p,
+div[data-testid="stExpander"] > details > summary span {
+  font-size: 0.95rem !important;
+  line-height: 1.35 !important;
+  margin: 0 !important;
+}
+/* Fixed-size evidence / citation cards */
+.rm-card {
+  height: 7.25rem;
+  overflow-y: auto;
+  padding: 0.65rem 0.75rem;
+  margin: 0 0 0.55rem 0;
+  border: 1px solid rgba(49, 51, 63, 0.14);
+  border-radius: 0.45rem;
+  background: #fff;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  box-sizing: border-box;
+}
+.rm-card strong { font-size: 0.9rem; }
+.rm-card .rm-meta {
+  color: rgba(49, 51, 63, 0.65);
+  font-size: 0.8rem;
+  margin: 0.15rem 0 0.35rem 0;
+}
+.rm-card .rm-snip {
+  color: rgba(49, 51, 63, 0.92);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def main() -> None:
+    _inject_ui_css()
     if "page" not in st.session_state:
         st.session_state.page = PAGE_HOME
 
@@ -1264,14 +1318,18 @@ def _render_evidence(cites: list[dict]) -> None:
                 "doc_type": (doc or {}).get("doc_type"),
             }
         )
+        filename = escape(str(c.get("filename") or ""))
+        location = escape(str(c.get("location") or "—"))
+        score = float(c.get("score") or 0)
+        snip = escape(str(c.get("snippet") or "")[:240])
         st.markdown(
-            f"**{i}. {badge} `{c['filename']}`** · {c.get('location') or '—'} · "
-            f"score={float(c.get('score') or 0):.3f}  \n"
-            f"{c.get('snippet') or ''}"
+            f'<div class="rm-card">'
+            f"<strong>{i}. {escape(badge)} `{filename}`</strong>"
+            f'<div class="rm-meta">{location} · score={score:.3f}</div>'
+            f'<div class="rm-snip">{snip}</div>'
+            f"</div>",
+            unsafe_allow_html=True,
         )
-        if i < min(5, len(cites)):
-            st.divider()
-
 
 def _rn_project_choices() -> list[str]:
     ids: set[str] = set()
@@ -1874,9 +1932,17 @@ def _proposal_panel() -> None:
                                 "doc_type": (doc or {}).get("doc_type"),
                             }
                         )
+                        filename = escape(str(c.get("filename") or ""))
+                        location = escape(str(c.get("location") or ""))
+                        score = float(c.get("score") or 0)
+                        snip = escape(str(c.get("snippet") or "")[:240])
                         st.markdown(
-                            f"**[{i}] {badge} {c['filename']} / {c['location']}** "
-                            f"(score={c['score']:.3f})  \n{c['snippet'][:280]}"
+                            f'<div class="rm-card">'
+                            f"<strong>[{i}] {escape(badge)} {filename}</strong>"
+                            f'<div class="rm-meta">{location} · score={score:.3f}</div>'
+                            f'<div class="rm-snip">{snip}</div>'
+                            f"</div>",
+                            unsafe_allow_html=True,
                         )
             with st.expander(f"[참고규정] {len(reference_dicts)}건", expanded=False):
                 if not reference_dicts:
@@ -1894,9 +1960,17 @@ def _proposal_panel() -> None:
                                 "doc_type": (doc or {}).get("doc_type"),
                             }
                         )
+                        filename = escape(str(c.get("filename") or ""))
+                        location = escape(str(c.get("location") or ""))
+                        score = float(c.get("score") or 0)
+                        snip = escape(str(c.get("snippet") or "")[:240])
                         st.markdown(
-                            f"**[{i}] {badge} {c['filename']} / {c['location']}** "
-                            f"(score={c['score']:.3f})  \n{c['snippet'][:280]}"
+                            f'<div class="rm-card">'
+                            f"<strong>[{i}] {escape(badge)} {filename}</strong>"
+                            f'<div class="rm-meta">{location} · score={score:.3f}</div>'
+                            f'<div class="rm-snip">{snip}</div>'
+                            f"</div>",
+                            unsafe_allow_html=True,
                         )
 
     roles = st.session_state.get("prop_roles") or []
