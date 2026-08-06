@@ -1871,50 +1871,52 @@ def _proposal_panel() -> None:
 
     research_dicts = st.session_state.get("prop_research_evidence") or []
     reference_dicts = st.session_state.get("prop_reference_evidence") or []
-    st.markdown(
-        f"### KB evidence "
-        f"(연구문서 {len(research_dicts)} · 참고규정 {len(reference_dicts)})"
-    )
     if not research_dicts and not reference_dicts:
         st.warning("Memory 근거가 없습니다. Library에서 센터 자료를 먼저 넣으세요.")
     else:
-        st.markdown("#### [연구문서]")
-        if not research_dicts:
-            st.caption("연구문서 근거 없음 — Project filter 또는 연구문서 업로드를 확인하세요.")
-        else:
-            for i, c in enumerate(research_dicts[:8], start=1):
-                doc = repo.get_document(str(c.get("document_id") or ""))
-                badge = _role_badge(
-                    {
-                        "document_role": c.get("document_role")
-                        or (doc or {}).get("document_role"),
-                        "doc_type": (doc or {}).get("doc_type"),
-                    }
-                )
-                st.markdown(
-                    f"**[{i}] {badge} {c['filename']} / {c['location']}** "
-                    f"(score={c['score']:.3f})  \n{c['snippet'][:280]}"
-                )
-        st.markdown("#### [참고규정]")
-        if not reference_dicts:
-            st.warning(
-                "참고규정 근거가 없습니다. Library의 **Center 자료**에 "
-                "운영요령 등 참고자료(reference)가 있는지 확인하세요."
-            )
-        else:
-            for i, c in enumerate(reference_dicts[:8], start=1):
-                doc = repo.get_document(str(c.get("document_id") or ""))
-                badge = _role_badge(
-                    {
-                        "document_role": c.get("document_role")
-                        or (doc or {}).get("document_role"),
-                        "doc_type": (doc or {}).get("doc_type"),
-                    }
-                )
-                st.markdown(
-                    f"**[{i}] {badge} {c['filename']} / {c['location']}** "
-                    f"(score={c['score']:.3f})  \n{c['snippet'][:280]}"
-                )
+        with st.expander(
+            f"KB evidence (연구문서 {len(research_dicts)} · 참고규정 {len(reference_dicts)})",
+            expanded=False,
+        ):
+            with st.expander(f"[연구문서] {len(research_dicts)}건", expanded=False):
+                if not research_dicts:
+                    st.caption(
+                        "연구문서 근거 없음 — Project filter 또는 연구문서 업로드를 확인하세요."
+                    )
+                else:
+                    for i, c in enumerate(research_dicts[:8], start=1):
+                        doc = repo.get_document(str(c.get("document_id") or ""))
+                        badge = _role_badge(
+                            {
+                                "document_role": c.get("document_role")
+                                or (doc or {}).get("document_role"),
+                                "doc_type": (doc or {}).get("doc_type"),
+                            }
+                        )
+                        st.markdown(
+                            f"**[{i}] {badge} {c['filename']} / {c['location']}** "
+                            f"(score={c['score']:.3f})  \n{c['snippet'][:280]}"
+                        )
+            with st.expander(f"[참고규정] {len(reference_dicts)}건", expanded=False):
+                if not reference_dicts:
+                    st.warning(
+                        "참고규정 근거가 없습니다. Library의 **Center 자료**에 "
+                        "운영요령 등 참고자료(reference)가 있는지 확인하세요."
+                    )
+                else:
+                    for i, c in enumerate(reference_dicts[:8], start=1):
+                        doc = repo.get_document(str(c.get("document_id") or ""))
+                        badge = _role_badge(
+                            {
+                                "document_role": c.get("document_role")
+                                or (doc or {}).get("document_role"),
+                                "doc_type": (doc or {}).get("doc_type"),
+                            }
+                        )
+                        st.markdown(
+                            f"**[{i}] {badge} {c['filename']} / {c['location']}** "
+                            f"(score={c['score']:.3f})  \n{c['snippet'][:280]}"
+                        )
 
     roles = st.session_state.get("prop_roles") or []
     st.markdown("### Role candidates")
