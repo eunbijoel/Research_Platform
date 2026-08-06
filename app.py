@@ -1926,7 +1926,7 @@ def _proposal_panel() -> None:
         st.caption(f"evidence: {selected.get('evidence', '')}")
 
     if st.button("Generate center draft", type="primary", disabled=not selected):
-        with st.spinner("Generating draft from Memory evidence…"):
+        with st.spinner("섹션별 근거 선별 후 초안 생성 중… (시간이 더 걸릴 수 있습니다)"):
             research_cites = _citations_from_dicts(research_dicts)
             reference_cites = _citations_from_dicts(reference_dicts)
             draft = generate_draft(
@@ -1942,6 +1942,8 @@ def _proposal_panel() -> None:
     selected = st.session_state.get("prop_selected") or selected
     if draft and selected:
         st.markdown("### Draft")
+        if draft.get("mode"):
+            st.caption(f"mode: `{draft.get('mode')}` · section-aware")
         for key, label in (
             ("necessity", "참여 필요성"),
             ("center_role", "담당 역할"),
@@ -1952,6 +1954,11 @@ def _proposal_panel() -> None:
         ):
             st.markdown(f"**{label}**")
             st.write(draft.get(key, ""))
+            sec_ev = (draft.get("section_evidence") or {}).get(key) or {}
+            r_n = len(sec_ev.get("research") or [])
+            f_n = len(sec_ev.get("reference") or [])
+            if r_n or f_n:
+                st.caption(f"이 섹션 근거: 연구문서 {r_n} · 참고규정 {f_n}")
         research_cites = _citations_from_dicts(research_dicts)
         reference_cites = _citations_from_dicts(reference_dicts)
         md = build_markdown(
