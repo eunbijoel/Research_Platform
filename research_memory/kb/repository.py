@@ -169,19 +169,6 @@ class KnowledgeRepository:
             ).fetchone()
             return _enrich_document(dict(row) if row else None)
 
-    def list_chunks(self, document_id: str) -> list[dict[str, Any]]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                """
-                SELECT id AS chunk_id, document_id, chunk_index, location, page, text
-                FROM chunks
-                WHERE document_id = ?
-                ORDER BY chunk_index ASC
-                """,
-                (document_id,),
-            ).fetchall()
-            return [dict(r) for r in rows]
-
     def delete_document(self, document_id: str) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
@@ -425,19 +412,6 @@ class KnowledgeRepository:
                 out.append(item)
             return out
 
-    def list_facts(self, document_id: str | None = None) -> list[dict[str, Any]]:
-        with self._conn() as conn:
-            if document_id:
-                rows = conn.execute(
-                    "SELECT * FROM facts WHERE document_id = ? ORDER BY confidence DESC",
-                    (document_id,),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM facts ORDER BY confidence DESC LIMIT 200"
-                ).fetchall()
-            return [dict(r) for r in rows]
-
     def rebuild_index(self) -> int:
         chunks = self.iter_chunks()
         self.last_index_status = rebuild_retrieval_index(chunks)
@@ -531,11 +505,6 @@ class KnowledgeRepository:
                 (project_id,),
             ).fetchone()
             return dict(row) if row else None
-
-    def delete_project(self, project_id: str) -> None:
-        with self._conn() as conn:
-            conn.execute("DELETE FROM milestones WHERE project_id = ?", (project_id,))
-            conn.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
 
     def delete_project_folder(self, project_id: str) -> dict[str, Any]:
         """Delete project registry + all documents/chunks/facts/milestones for that project."""
@@ -670,10 +639,6 @@ class KnowledgeRepository:
         values = list(updates.values()) + [milestone_id]
         with self._conn() as conn:
             conn.execute(f"UPDATE milestones SET {cols} WHERE id=?", values)
-
-    def delete_milestone(self, milestone_id: str) -> None:
-        with self._conn() as conn:
-            conn.execute("DELETE FROM milestones WHERE id = ?", (milestone_id,))
 
     def list_milestones(self, project_id: str) -> list[dict[str, Any]]:
         with self._conn() as conn:

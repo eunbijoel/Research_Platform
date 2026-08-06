@@ -13,18 +13,6 @@ from pypdf import PdfReader
 from research_memory.schema import TextChunk
 
 
-SUPPORTED_EXTENSIONS = {
-    ".pdf",
-    ".docx",
-    ".txt",
-    ".md",
-    ".csv",
-    ".xlsx",
-    ".xls",
-    ".hwpx",
-}
-
-
 def extract_chunks(path: Path) -> tuple[str, list[TextChunk], str]:
     """
     Return (file_type, chunks, error).

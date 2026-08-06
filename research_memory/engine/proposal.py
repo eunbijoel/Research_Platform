@@ -260,23 +260,6 @@ def analyze_rfp(rfp_chunks: list[dict[str, str]]) -> dict[str, Any]:
         return result
 
 
-def gather_kb_evidence(
-    rfp: dict[str, Any],
-    *,
-    repo: KnowledgeRepository | None = None,
-    top_k_per_query: int = 4,
-    project_id: str | None = None,
-) -> list[Citation]:
-    """Backward-compatible combined evidence (research + reference)."""
-    split = gather_kb_evidence_split(
-        rfp,
-        repo=repo,
-        top_k_per_query=top_k_per_query,
-        project_id=project_id,
-    )
-    return split["combined"]
-
-
 def gather_kb_evidence_split(
     rfp: dict[str, Any],
     *,
@@ -964,31 +947,6 @@ def _heuristic_section(
     return f"[확인 필요] {label} — 섹션 근거 없음"
 
 
-def _heuristic_draft(
-    rfp: dict[str, Any],
-    selected_role: dict[str, Any],
-    evidence: list[Citation],
-    reference: list[Citation] | None = None,
-) -> dict[str, Any]:
-    research, ref_split = _split_by_role(evidence)
-    ref = reference if reference is not None else ref_split
-    draft: dict[str, Any] = {}
-    section_evidence: dict[str, Any] = {}
-    for key in DRAFT_KEYS:
-        r_sub, f_sub = select_section_evidence(key, rfp, research, ref)
-        section_evidence[key] = {
-            "research": [c.to_dict() for c in r_sub],
-            "reference": [c.to_dict() for c in f_sub],
-        }
-        draft[key] = _heuristic_section(key, rfp, selected_role, r_sub, f_sub)
-    draft["citations"] = [c.to_dict() for c in evidence]
-    draft["research_citations"] = [c.to_dict() for c in research]
-    draft["reference_citations"] = [c.to_dict() for c in ref]
-    draft["section_evidence"] = section_evidence
-    draft["mode"] = "heuristic_section"
-    return draft
-
-
 def _parse_role_list(raw: str) -> list[dict[str, Any]]:
     cleaned = _strip_fence(raw)
     try:
@@ -1025,18 +983,6 @@ def _parse_section_text(raw: str, section_key: str) -> str:
     # model sometimes returns bare prose
     text = cleaned.strip()
     return text if text else NOT_FOUND
-
-
-def _parse_draft(raw: str) -> dict[str, Any]:
-    cleaned = _strip_fence(raw)
-    try:
-        parsed = json.loads(cleaned)
-        return {key: parsed.get(key, NOT_FOUND) for key in DRAFT_KEYS}
-    except json.JSONDecodeError:
-        result = {key: NOT_FOUND for key in DRAFT_KEYS}
-        result["open_questions"] = raw[:500]
-        result["error"] = "LLM draft JSON parse failed"
-        return result
 
 
 def _strip_fence(text: str) -> str:

@@ -70,7 +70,6 @@ from research_memory.schema import (
 
 st.set_page_config(
     page_title="Research Memory Platform",
-    page_icon=str(ROOT / "assets" / "favicon.svg"),
     layout="wide",
 )
 
@@ -146,30 +145,12 @@ def _kb_stats() -> dict:
     docs = repo.list_documents()
     projects = repo.list_projects()
     chunk_count = sum(int(d.get("chunk_count") or 0) for d in docs)
-    ready = sum(1 for d in docs if d.get("status") == "ready")
-    failed = sum(1 for d in docs if d.get("status") == "failed")
-    rs = repo.retrieval_status()
-    if rs.get("vector_index") and rs.get("tfidf_index"):
-        kb_status = "Ready (hybrid)"
-    elif rs.get("vector_index"):
-        kb_status = "Ready (vector)"
-    elif rs.get("tfidf_index"):
-        kb_status = "Ready (lexical)"
-    elif docs:
-        kb_status = "Needs rebuild"
-    else:
-        kb_status = "Empty"
-    last_indexed = _last_indexed_label()
     return {
         "docs": docs,
         "doc_count": len(docs),
-        "ready": ready,
-        "failed": failed,
         "project_count": len(projects),
         "chunk_count": chunk_count,
-        "kb_status": kb_status,
-        "last_indexed": last_indexed,
-        "retrieval": rs,
+        "last_indexed": _last_indexed_label(),
     }
 
 
@@ -358,7 +339,7 @@ def _library_page() -> None:
     focus_upload = bool(st.session_state.pop("library_focus_upload", False))
 
     if not docs:
-        st.info("Memory is empty. Upload documents below, or load the demo dataset from Home.")
+        st.info("Memory is empty. Upload documents below to build Research Memory.")
         with st.expander("Upload Documents", expanded=True):
             _upload_panel()
         return
@@ -2005,7 +1986,7 @@ def _milestone_panel() -> None:
 
     projects = repo.list_projects()
     if not projects:
-        st.info("프로젝트가 없습니다. Seed 또는 Create project를 먼저 하세요.")
+        st.info("프로젝트가 없습니다. Create project를 먼저 하세요.")
         return
 
     labels = {
