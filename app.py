@@ -1027,6 +1027,7 @@ def _render_original_preview(doc: dict) -> None:
     """Render uploaded original file when possible; otherwise download fallback."""
     from research_memory.engine.document_preview import (
         docx_to_html,
+        hwpx_preview_html,
         pdf_page_pngs,
         pdf_pages_preview_html,
         preview_kind,
@@ -1130,11 +1131,27 @@ def _render_original_preview(doc: dict) -> None:
         return
 
     if kind == "hwpx":
-        st.info(
-            "HWPX는 앱 내 원본 레이아웃 미리보기가 제한됩니다. "
-            "아래 다운로드 후 한글에서 열어 확인해 주세요."
+        import html as html_lib
+
+        html_body, warn, err = hwpx_preview_html(path)
+        if err:
+            st.info(
+                "HWPX 앱 내 미리보기를 만들지 못했습니다. "
+                "원본 다운로드 후 한글에서 열어 확인해 주세요."
+            )
+            st.caption(err)
+            st.caption("검색·Chat용 추출 텍스트는 `추출 텍스트` 탭에서 볼 수 있습니다.")
+            return
+        box_h = 620
+        components.html(html_body, height=box_h, scrolling=True)
+        footer = warn or "한글 레이아웃 근사 미리보기 · 원본과 다를 수 있음"
+        st.markdown(
+            "<div style='margin-top:-6px;padding:8px 12px 10px;text-align:right;"
+            "border:1px solid #d1d5db;border-radius:0 0 10px 10px;background:#f9fafb;'>"
+            f"<span style='font-size:12px;color:#6b7280;line-height:1.4;'>"
+            f"{html_lib.escape(footer)}</span></div>",
+            unsafe_allow_html=True,
         )
-        st.caption("검색·Chat용 추출 텍스트는 `추출 텍스트` 탭에서 볼 수 있습니다.")
         return
 
     st.info(

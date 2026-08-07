@@ -142,6 +142,78 @@ def pdf_page_pngs(
             pass
 
 
+def hwpx_preview_html(
+    path: Path,
+    *,
+    max_file_bytes: int = 15 * 1024 * 1024,
+    max_html_bytes: int = 8 * 1024 * 1024,
+) -> tuple[str, str, str]:
+    """Build approximate HWPX layout HTML for in-app preview.
+
+    Returns (html, warning, error). Prefer experimental document viewer,
+    then HwpxDocument.export_html().
+    """
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        return "", "", f"HWPX를 읽을 수 없습니다: {exc}"
+    if size > max_file_bytes:
+        return (
+            "",
+            "",
+            "HWPX가 너무 큽니다(15MB+). 원본 다운로드 후 한글에서 확인해 주세요.",
+        )
+
+    warning = ""
+    # 1) Layout-aware viewer (experimental API)
+    try:
+        from hwpx.experimental import render_document_viewer
+
+        viewer = render_document_viewer(path, mode="long", title=path.name)
+        html = str(getattr(viewer, "html", "") or "").strip()
+        if html:
+            if len(html.encode("utf-8", errors="ignore")) > max_html_bytes:
+                warning = "레이아웃 HTML이 커서 단순 HTML로 폴백합니다."
+            else:
+                return html, "한글 레이아웃 근사 미리보기 · 원본과 다를 수 있음", ""
+    except Exception as exc:  # noqa: BLE001
+        warning = f"레이아웃 뷰어 실패 → 단순 HTML 시도 ({exc})"
+
+    # 2) Lighter export_html fallback
+    try:
+        from hwpx import HwpxDocument
+
+        doc = HwpxDocument.open(str(path))
+        try:
+            html = str(doc.export_html() or "").strip()
+        finally:
+            try:
+                doc.close()
+            except Exception:  # noqa: BLE001
+                pass
+        if not html:
+            return "", warning, "HWPX에서 표시할 HTML을 만들지 못했습니다."
+        if len(html.encode("utf-8", errors="ignore")) > max_html_bytes:
+            return "", warning, "미리보기 HTML이 너무 큽니다. 원본 다운로드로 확인해 주세요."
+        note = "단순 HTML 미리보기 · 원본 레이아웃과 다를 수 있음"
+        if warning:
+            note = f"{note} ({warning})"
+        # Wrap fragment/document for consistent scroll box chrome
+        if "<html" not in html.lower():
+            html = (
+                "<!DOCTYPE html><html lang='ko'><head><meta charset='utf-8'/>"
+                "<style>body{font-family:'Malgun Gothic','Noto Sans KR',sans-serif;"
+                "font-size:14px;line-height:1.5;color:#111;padding:12px;}"
+                "table{border-collapse:collapse;}td,th{border:1px solid #bbb;padding:4px 6px;}"
+                "</style></head><body>"
+                f"{html}</body></html>"
+            )
+        return html, note, ""
+    except Exception as exc:  # noqa: BLE001
+        detail = warning or str(exc)
+        return "", "", f"HWPX 미리보기 실패: {detail}"
+
+
 def pdf_pages_preview_html(
     pages: list[bytes],
     *,
