@@ -145,13 +145,15 @@ def pdf_page_pngs(
 def hwpx_preview_html(
     path: Path,
     *,
-    max_file_bytes: int = 15 * 1024 * 1024,
+    max_pages: int = 12,
+    max_file_bytes: int = 150 * 1024 * 1024,
     max_html_bytes: int = 8 * 1024 * 1024,
 ) -> tuple[str, str, str]:
     """Build approximate HWPX layout HTML for in-app preview.
 
-    Returns (html, warning, error). Prefer experimental document viewer,
-    then HwpxDocument.export_html().
+    Returns (html, warning, error). Prefers layout page fragments (first N pages)
+    so large packages can still preview without loading a huge full-document HTML.
+    Falls back to HwpxDocument.export_html().
     """
     try:
         size = path.stat().st_size
@@ -161,21 +163,43 @@ def hwpx_preview_html(
         return (
             "",
             "",
-            "HWPX가 너무 큽니다(15MB+). 원본 다운로드 후 한글에서 확인해 주세요.",
+            "HWPX가 너무 큽니다(150MB+). 원본 다운로드 후 한글에서 확인해 주세요.",
         )
 
     warning = ""
-    # 1) Layout-aware viewer (experimental API)
-    try:
-        from hwpx.experimental import render_document_viewer
+    limit = max(1, int(max_pages))
 
-        viewer = render_document_viewer(path, mode="long", title=path.name)
-        html = str(getattr(viewer, "html", "") or "").strip()
-        if html:
-            if len(html.encode("utf-8", errors="ignore")) > max_html_bytes:
-                warning = "레이아웃 HTML이 커서 단순 HTML로 폴백합니다."
-            else:
-                return html, "한글 레이아웃 근사 미리보기 · 원본과 다를 수 있음", ""
+    # 1) Page-aware layout preview — show first N pages even for large files
+    try:
+        from hwpx.experimental import render_layout_preview
+
+        preview = render_layout_preview(path, mode="pages", title=path.name)
+        fragments = [str(f) for f in (preview.page_fragments or ()) if str(f).strip()]
+        total = len(fragments) or len(getattr(preview, "pages", ()) or ())
+        if fragments:
+            shown = fragments[:limit]
+            html = _hwpx_pages_to_viewer_html(path.name, shown)
+            raw_len = len(html.encode("utf-8", errors="ignore"))
+            if raw_len > max_html_bytes and len(shown) > 1:
+                # Shrink page count until under budget
+                for n in range(len(shown) - 1, 0, -1):
+                    candidate = _hwpx_pages_to_viewer_html(path.name, shown[:n])
+                    if len(candidate.encode("utf-8", errors="ignore")) <= max_html_bytes:
+                        html = candidate
+                        shown = shown[:n]
+                        break
+                else:
+                    warning = "레이아웃 HTML이 커서 단순 HTML로 폴백합니다."
+                    html = ""
+            if html:
+                if total > len(shown):
+                    note = (
+                        f"미리보기: 앞 {len(shown)} / 전체 {total}페이지 · "
+                        "전체는 원본 다운로드로 확인하세요."
+                    )
+                else:
+                    note = "한글 레이아웃 근사 미리보기 · 원본과 다를 수 있음"
+                return html, note, ""
     except Exception as exc:  # noqa: BLE001
         warning = f"레이아웃 뷰어 실패 → 단순 HTML 시도 ({exc})"
 
@@ -198,7 +222,6 @@ def hwpx_preview_html(
         note = "단순 HTML 미리보기 · 원본 레이아웃과 다를 수 있음"
         if warning:
             note = f"{note} ({warning})"
-        # Wrap fragment/document for consistent scroll box chrome
         if "<html" not in html.lower():
             html = (
                 "<!DOCTYPE html><html lang='ko'><head><meta charset='utf-8'/>"
@@ -212,6 +235,26 @@ def hwpx_preview_html(
     except Exception as exc:  # noqa: BLE001
         detail = warning or str(exc)
         return "", "", f"HWPX 미리보기 실패: {detail}"
+
+
+def _hwpx_pages_to_viewer_html(title: str, page_fragments: list[str]) -> str:
+    """Assemble page fragments into a scrollable viewer document."""
+    body = "".join(page_fragments)
+    try:
+        from hwpx.tools.document_viewer import _viewer_html
+
+        return str(_viewer_html(title, "pages", body, len(page_fragments)))
+    except Exception:  # noqa: BLE001
+        safe_title = html.escape(title or "HWPX")
+        return (
+            "<!DOCTYPE html><html lang='ko'><head><meta charset='utf-8'/>"
+            f"<title>{safe_title}</title>"
+            "<style>html{background:#f2f3f5;}body{margin:0;padding:12px;"
+            "font-family:'Malgun Gothic','Noto Sans KR',sans-serif;color:#111;}"
+            ".hwpx-preview-page{background:#fff;margin:0 auto 16px;"
+            "box-shadow:0 1px 3px rgba(0,0,0,.08);}</style>"
+            f"</head><body>{body}</body></html>"
+        )
 
 
 def pdf_pages_preview_html(
