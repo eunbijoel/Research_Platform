@@ -372,6 +372,8 @@ def generate_section_draft(
     selected_role: dict[str, Any],
     research_evidence: list[Citation],
     reference_evidence: list[Citation],
+    *,
+    review_notes: str | None = None,
 ) -> str:
     """Generate a single draft section string using section-scoped evidence."""
     if section_key not in DRAFT_KEYS:
@@ -381,6 +383,15 @@ def generate_section_draft(
     instruction = str(spec.get("instruction") or f"{label}만 작성하세요.")
     research_text = _evidence_text(research_evidence, label="연구문서")
     reference_text = _evidence_text(reference_evidence, label="참고규정")
+    review_block = ""
+    if (review_notes or "").strip():
+        review_block = f"""
+[초안 검토 피드백 — 이 섹션만 반영]
+{(review_notes or "").strip()}
+- 위 피드백을 반영해 이 섹션만 다시 작성하세요.
+- 근거가 없으면 새 사실을 만들지 말고 [확인 필요]로 남기세요.
+- 과도한 확정 표현은 [AI 제안] 또는 [확인 필요]로 완화하세요.
+"""
 
     if not llm_available():
         return _heuristic_section(
@@ -397,7 +408,7 @@ JSON 객체만 출력하세요. 키는 정확히 "{section_key}" 하나만 (값�
 
 섹션: {label} ({section_key})
 지시: {instruction}
-
+{review_block}
 규칙:
 - 문장 앞에 [연구문서], [참고규정], [AI 제안], [확인 필요] 중 하나를 붙이세요.
 - 아래 제공된 근거만 사용하세요. 다른 섹션(역할/수행/산출물/준수 등) 내용을 섞지 마세요.
@@ -405,6 +416,7 @@ JSON 객체만 출력하세요. 키는 정확히 "{section_key}" 하나만 (값�
 - 수치·예산·기업명은 근거에 없으면 [확인 필요].
 - 과거 문장 복붙 금지. 이번 RFP와 선택한 역할에 맞게 작성.
 - 요약 한 덩어리가 아니라, 해당 섹션에 필요한 구체 문장으로 작성.
+- 근거가 부족한 내용을 임의로 보완하지 마세요.
 
 [RFP 분석]
 {json.dumps(rfp, ensure_ascii=False, indent=2)}
@@ -481,6 +493,380 @@ def generate_draft(
     if errors:
         draft["error"] = "; ".join(errors)
     return draft
+
+
+REVIEW_CHECK_TYPES = (
+    "rfp_gap",
+    "unsupported_claim",
+    "compliance_check",
+    "inconsistency",
+)
+
+_LABEL_TO_KEY = {label: key for key, label in DRAFT_LABELS.items()}
+_LABEL_TO_KEY.update(
+    {
+        "담당 역할": "center_role",
+        "우리 센터의 담당 역할": "center_role",
+        "수행내용": "work_details",
+        "세부 수행내용": "work_details",
+        "산출물": "deliverables",
+        "예상 산출물": "deliverables",
+        "운영요령": "compliance_notes",
+        "운영요령·준수 포인트": "compliance_notes",
+        "운영요령·참고규정 준수 포인트": "compliance_notes",
+        "확인 필요": "open_questions",
+        "추가 확인이 필요한 사항": "open_questions",
+    }
+)
+
+
+def review_draft_quality(
+    rfp: dict[str, Any],
+    draft: dict[str, Any],
+    *,
+    research_evidence: list[Citation] | None = None,
+    reference_evidence: list[Citation] | None = None,
+    selected_role: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Review Draft v1 against RFP + existing evidence. No new retrieval."""
+    research = list(research_evidence or [])
+    reference = list(reference_evidence or [])
+    sections = {
+        key: str(draft.get(key) or "").strip()
+        for key in DRAFT_KEYS
+        if str(draft.get(key) or "").strip()
+    }
+    if not sections:
+        return [
+            {
+                "section": "전체",
+                "check_type": "rfp_gap",
+                "status": "확인 필요",
+                "message": "검토할 Draft 섹션이 없습니다.",
+                "evidence": [],
+                "suggested_action": "Draft를 먼저 생성하세요.",
+            }
+        ]
+
+    if not llm_available():
+        return _heuristic_review(rfp, sections, research, reference)
+
+    research_text = _evidence_text(research[:16], label="연구문서")
+    reference_text = _evidence_text(reference[:16], label="참고규정")
+    section_payload = {
+        DRAFT_LABELS.get(k, k): v[:2500] for k, v in sections.items()
+    }
+    prompt = f"""당신은 공공 R&D 제안서 "센터 파트 초안"의 Quality Reviewer입니다.
+새 사실을 만들지 말고, 아래 Draft를 RFP·연구문서·참고규정(운영요령) 기준으로만 검토하세요.
+JSON 배열만 출력하세요.
+
+각 원소 스키마:
+{{
+  "section": "섹션 한글명 (예: 참여 필요성, 담당 역할, 운영요령·참고규정 준수 포인트)",
+  "check_type": "rfp_gap|unsupported_claim|compliance_check|inconsistency",
+  "status": "문제없음|확인 필요",
+  "message": "짧은 한국어 설명",
+  "evidence": ["문서명 또는 RFP 필드/위치"],
+  "suggested_action": "수정 방향 (확인 필요 표현 완화, RFP 확인 등)"
+}}
+
+검토 항목(이 4가지만):
+1) rfp_gap — RFP 필수 요구·성능지표·산출물 등이 Draft에서 빠졌는지
+2) unsupported_claim — Research/RFP 근거 없이 확정적으로 쓴 문장 ([확인 필요]로 가야 할 것)
+3) compliance_check — 참고규정(특히 운영요령) 기준으로 사전 확인이 필요한지.
+   법적/행정 준수 완료라고 단정하지 말고 "사전 검토/확인 필요" 톤으로.
+4) inconsistency — 섹션 간 과한 중복, 숫자·역할·산출물 표현 충돌
+
+규칙:
+- status는 "문제없음" 또는 "확인 필요"만.
+- 문제없는 주요 섹션도 가능하면 section당 1개 "문제없음" 항목을 포함.
+- 근거가 없으면 evidence는 빈 배열, 추측으로 채우지 말 것.
+- 참고규정은 Draft 작성 재료가 아니라 compliance 검토 기준으로 사용.
+
+[RFP 분석]
+{json.dumps(rfp, ensure_ascii=False, indent=2)}
+
+[선택한 역할]
+{json.dumps(selected_role or {}, ensure_ascii=False, indent=2)}
+
+[Draft 섹션]
+{json.dumps(section_payload, ensure_ascii=False, indent=2)}
+
+[연구문서 근거]
+{research_text}
+
+[참고규정·운영요령 근거 — compliance 기준]
+{reference_text}
+"""
+    try:
+        raw = generate_text(prompt)
+        findings = _parse_review_findings(raw)
+        if findings:
+            return findings
+    except LLMConnectionError:
+        pass
+    return _heuristic_review(rfp, sections, research, reference)
+
+
+def revise_draft_from_review(
+    draft: dict[str, Any],
+    findings: list[dict[str, Any]],
+    rfp: dict[str, Any],
+    selected_role: dict[str, Any],
+    *,
+    research_evidence: list[Citation] | None = None,
+    reference_evidence: list[Citation] | None = None,
+) -> dict[str, Any]:
+    """Regenerate only sections marked 확인 필요; keep other Draft v1 text."""
+    research = list(research_evidence or [])
+    reference = list(reference_evidence or [])
+    revised = dict(draft)
+    notes_by_section: dict[str, list[str]] = {}
+    for item in findings or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("status") or "").strip() != "확인 필요":
+            continue
+        key = _section_label_to_key(str(item.get("section") or ""))
+        if not key or key not in DRAFT_KEYS:
+            continue
+        msg = str(item.get("message") or "").strip()
+        action = str(item.get("suggested_action") or "").strip()
+        ctype = str(item.get("check_type") or "").strip()
+        ev = item.get("evidence") or []
+        ev_txt = ", ".join(str(x) for x in ev[:4]) if isinstance(ev, list) else str(ev)
+        line = f"- ({ctype}) {msg}"
+        if action:
+            line += f" → {action}"
+        if ev_txt:
+            line += f" (근거 힌트: {ev_txt})"
+        notes_by_section.setdefault(key, []).append(line)
+
+    revised_keys: list[str] = []
+    errors: list[str] = []
+    for key, notes in notes_by_section.items():
+        r_sub, f_sub = select_section_evidence(key, rfp, research, reference)
+        review_notes = "\n".join(notes)
+        try:
+            revised[key] = generate_section_draft(
+                key,
+                rfp,
+                selected_role,
+                r_sub,
+                f_sub,
+                review_notes=review_notes,
+            )
+            revised_keys.append(key)
+            # refresh section evidence snapshot for revised sections
+            sec_ev = dict(revised.get("section_evidence") or {})
+            sec_ev[key] = {
+                "research": [c.to_dict() for c in r_sub],
+                "reference": [c.to_dict() for c in f_sub],
+            }
+            revised["section_evidence"] = sec_ev
+        except Exception as exc:  # noqa: BLE001
+            revised[key] = f"[확인 필요] 섹션 개선 실패: {exc}"
+            errors.append(f"{key}: {exc}")
+
+    revised["mode"] = (
+        "llm_section_revised" if llm_available() else "heuristic_section_revised"
+    )
+    revised["revised_sections"] = revised_keys
+    if errors:
+        revised["error"] = "; ".join(
+            [str(revised.get("error") or "").strip(), *errors]
+        ).strip("; ")
+    return revised
+
+
+def _section_label_to_key(label: str) -> str | None:
+    text = (label or "").strip()
+    if not text:
+        return None
+    if text in DRAFT_KEYS:
+        return text
+    if text in _LABEL_TO_KEY:
+        return _LABEL_TO_KEY[text]
+    # fuzzy contains
+    for name, key in _LABEL_TO_KEY.items():
+        if name in text or text in name:
+            return key
+    return None
+
+
+def _parse_review_findings(raw: str) -> list[dict[str, Any]]:
+    cleaned = _strip_fence(raw)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        # try array slice
+        start = cleaned.find("[")
+        end = cleaned.rfind("]")
+        if start < 0 or end <= start:
+            return []
+        try:
+            parsed = json.loads(cleaned[start : end + 1])
+        except json.JSONDecodeError:
+            return []
+    if isinstance(parsed, dict):
+        for key in ("findings", "results", "items", "reviews"):
+            if isinstance(parsed.get(key), list):
+                parsed = parsed[key]
+                break
+        else:
+            return []
+    if not isinstance(parsed, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "").strip()
+        if status not in {"문제없음", "확인 필요"}:
+            status = "확인 필요"
+        ctype = str(item.get("check_type") or "").strip()
+        if ctype not in REVIEW_CHECK_TYPES:
+            ctype = "unsupported_claim"
+        evidence = item.get("evidence") or []
+        if not isinstance(evidence, list):
+            evidence = [str(evidence)]
+        out.append(
+            {
+                "section": str(item.get("section") or "").strip() or "전체",
+                "check_type": ctype,
+                "status": status,
+                "message": str(item.get("message") or "").strip() or NOT_FOUND,
+                "evidence": [str(x) for x in evidence[:6]],
+                "suggested_action": str(item.get("suggested_action") or "").strip()
+                or "확인 필요 표현으로 수정",
+            }
+        )
+    return out
+
+
+def _heuristic_review(
+    rfp: dict[str, Any],
+    sections: dict[str, str],
+    research: list[Citation],
+    reference: list[Citation],
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    all_text = "\n".join(sections.values())
+    # RFP gaps: keyword presence
+    rfp_bits = []
+    for field in ("mandatory_requirements", "kpi", "submission_documents"):
+        val = rfp.get(field)
+        if isinstance(val, list):
+            rfp_bits.extend(str(x) for x in val[:5])
+        elif val:
+            rfp_bits.append(str(val))
+    missing = []
+    for bit in rfp_bits[:8]:
+        token = bit.strip()[:20]
+        if len(token) >= 4 and token not in all_text:
+            missing.append(token)
+    if missing:
+        findings.append(
+            {
+                "section": DRAFT_LABELS.get("work_details", "세부 수행내용"),
+                "check_type": "rfp_gap",
+                "status": "확인 필요",
+                "message": f"RFP 요구/지표 일부가 Draft에 명시적으로 연결되지 않았습니다: {', '.join(missing[:3])}",
+                "evidence": ["RFP mandatory_requirements/kpi"],
+                "suggested_action": "해당 요구를 수행내용에 매핑하거나 [확인 필요]로 표시",
+            }
+        )
+    # Unsupported claims: assertive sentences without tags
+    for key, text in sections.items():
+        if key == "open_questions":
+            continue
+        if "[확인 필요]" in text or "[AI 제안]" in text:
+            findings.append(
+                {
+                    "section": DRAFT_LABELS.get(key, key),
+                    "check_type": "unsupported_claim",
+                    "status": "문제없음",
+                    "message": "불확실 표현([확인 필요]/[AI 제안])이 사용되어 있습니다.",
+                    "evidence": [],
+                    "suggested_action": "유지",
+                }
+            )
+            continue
+        if ("총괄" in text or "반드시" in text or "확정" in text) and (
+            "[연구문서]" not in text and "[참고규정]" not in text
+        ):
+            findings.append(
+                {
+                    "section": DRAFT_LABELS.get(key, key),
+                    "check_type": "unsupported_claim",
+                    "status": "확인 필요",
+                    "message": "확정·총괄 표현이 있으나 근거 태그가 약합니다.",
+                    "evidence": [c.filename for c in research[:2]],
+                    "suggested_action": "[확인 필요] 또는 [AI 제안]으로 완화",
+                }
+            )
+    # Compliance
+    if reference:
+        comp = sections.get("compliance_notes") or ""
+        if not comp or comp == NOT_FOUND or len(comp) < 40:
+            findings.append(
+                {
+                    "section": DRAFT_LABELS.get("compliance_notes", "운영요령"),
+                    "check_type": "compliance_check",
+                    "status": "확인 필요",
+                    "message": "참고규정(운영요령) 기준 사전 확인 항목이 Draft에 충분히 반영되지 않았습니다.",
+                    "evidence": [c.filename for c in reference[:3]],
+                    "suggested_action": "준수 완료 단정 없이 확인 필요 항목으로 보강",
+                }
+            )
+        else:
+            findings.append(
+                {
+                    "section": DRAFT_LABELS.get("compliance_notes", "운영요령"),
+                    "check_type": "compliance_check",
+                    "status": "확인 필요",
+                    "message": "운영요령 관련 문구가 있으나 행정·예산 계상은 사전 검토가 필요합니다.",
+                    "evidence": [c.filename for c in reference[:3]],
+                    "suggested_action": "준수 완료로 단정하지 말고 확인 필요 톤 유지",
+                }
+            )
+    else:
+        findings.append(
+            {
+                "section": DRAFT_LABELS.get("compliance_notes", "운영요령"),
+                "check_type": "compliance_check",
+                "status": "확인 필요",
+                "message": "참고규정 Evidence가 없어 운영요령 기준 검토를 완료할 수 없습니다.",
+                "evidence": [],
+                "suggested_action": "운영요령 문서를 Memory에 올린 뒤 재검토",
+            }
+        )
+    # Inconsistency: repeated long phrases
+    values = list(sections.values())
+    if len(values) >= 2 and values[0][:80] and values[0][:80] in values[1]:
+        findings.append(
+            {
+                "section": DRAFT_LABELS.get("center_role", "담당 역할"),
+                "check_type": "inconsistency",
+                "status": "확인 필요",
+                "message": "섹션 간 동일 문구 반복이 감지되었습니다.",
+                "evidence": [],
+                "suggested_action": "역할/수행 경계를 구분해 중복 축소",
+            }
+        )
+    if not findings:
+        for key in list(sections.keys())[:3]:
+            findings.append(
+                {
+                    "section": DRAFT_LABELS.get(key, key),
+                    "check_type": "rfp_gap",
+                    "status": "문제없음",
+                    "message": "휴리스틱 검토에서 뚜렷한 문제는 보이지 않습니다.",
+                    "evidence": [],
+                    "suggested_action": "유지",
+                }
+            )
+    return findings
 
 
 def run_proposal_pipeline(

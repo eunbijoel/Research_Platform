@@ -48,6 +48,8 @@ from research_memory.engine.proposal import (
     gather_kb_evidence_split,
     generate_draft,
     parse_rfp_bytes,
+    review_draft_quality,
+    revise_draft_from_review,
     suggest_roles,
 )
 from research_memory.engine.similarity import (
@@ -2031,6 +2033,8 @@ def _proposal_panel() -> None:
             st.session_state["prop_roles"] = roles
             st.session_state.pop("prop_draft", None)
             st.session_state.pop("prop_selected", None)
+            st.session_state.pop("prop_review_findings", None)
+            st.session_state.pop("prop_draft_v1", None)
 
     rfp = st.session_state.get("prop_rfp_result")
     if not rfp or not isinstance(rfp, dict):
@@ -2141,13 +2145,23 @@ def _proposal_panel() -> None:
             )
             st.session_state["prop_draft"] = draft
             st.session_state["prop_selected"] = selected
+            st.session_state.pop("prop_review_findings", None)
+            st.session_state.pop("prop_draft_v1", None)
 
     draft = st.session_state.get("prop_draft")
     selected = st.session_state.get("prop_selected") or selected
     if draft and selected:
         st.markdown("### Draft")
         if draft.get("mode"):
-            st.caption(f"mode: `{draft.get('mode')}` · section-aware")
+            mode_note = str(draft.get("mode") or "")
+            if draft.get("revised_sections"):
+                keys = draft.get("revised_sections") or []
+                labels = [DRAFT_LABELS_UI.get(k, k) for k in keys]
+                st.caption(
+                    f"mode: `{mode_note}` · Draft v2 · 수정 섹션: {', '.join(labels) or '-'}"
+                )
+            else:
+                st.caption(f"mode: `{mode_note}` · section-aware")
         for key, label in (
             ("necessity", "참여 필요성"),
             ("center_role", "담당 역할"),
@@ -2163,6 +2177,40 @@ def _proposal_panel() -> None:
             f_n = len(sec_ev.get("reference") or [])
             if r_n or f_n:
                 st.caption(f"이 섹션 근거: 연구문서 {r_n} · 참고규정 {f_n}")
+
+        st.markdown("### 초안 검토")
+        if st.button("초안 검토", key="prop_review_btn"):
+            with st.spinner("RFP·연구문서·참고규정 기준으로 초안 검토 중…"):
+                findings = review_draft_quality(
+                    rfp,
+                    draft,
+                    research_evidence=_citations_from_dicts(research_dicts),
+                    reference_evidence=_citations_from_dicts(reference_dicts),
+                    selected_role=selected,
+                )
+                st.session_state["prop_review_findings"] = findings
+
+        findings = st.session_state.get("prop_review_findings") or []
+        if findings:
+            _render_proposal_review(findings)
+            if st.button(
+                "검토 결과 반영하여 Draft 개선",
+                type="primary",
+                key="prop_revise_btn",
+            ):
+                with st.spinner("확인 필요 섹션만 재생성 중…"):
+                    st.session_state["prop_draft_v1"] = dict(draft)
+                    revised = revise_draft_from_review(
+                        draft,
+                        findings,
+                        rfp,
+                        selected,
+                        research_evidence=_citations_from_dicts(research_dicts),
+                        reference_evidence=_citations_from_dicts(reference_dicts),
+                    )
+                    st.session_state["prop_draft"] = revised
+                st.rerun()
+
         research_cites = _citations_from_dicts(research_dicts)
         reference_cites = _citations_from_dicts(reference_dicts)
         md = build_markdown(
@@ -2180,6 +2228,50 @@ def _proposal_panel() -> None:
             file_name="proposal_draft.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
+
+
+DRAFT_LABELS_UI = {
+    "necessity": "참여 필요성",
+    "center_role": "담당 역할",
+    "work_details": "수행내용",
+    "yearly_plan": "연차별 수행계획",
+    "deliverables": "산출물",
+    "kpi_draft": "KPI 초안",
+    "consortium_role": "컨소시엄 내 역할",
+    "expected_effects": "기대효과",
+    "compliance_notes": "운영요령·준수 포인트",
+    "open_questions": "확인 필요",
+}
+
+
+def _render_proposal_review(findings: list) -> None:
+    """Group review findings by section for a compact UI."""
+    by_section: dict[str, list] = {}
+    for item in findings:
+        if not isinstance(item, dict):
+            continue
+        sec = str(item.get("section") or "전체").strip() or "전체"
+        by_section.setdefault(sec, []).append(item)
+
+    for section, items in by_section.items():
+        needs = [x for x in items if str(x.get("status")) == "확인 필요"]
+        if needs:
+            st.markdown(f"**{section}**  \n⚠ 확인 필요")
+            for x in needs:
+                msg = str(x.get("message") or "").strip()
+                action = str(x.get("suggested_action") or "").strip()
+                ev = x.get("evidence") or []
+                ev_txt = ", ".join(str(e) for e in ev[:3]) if isinstance(ev, list) else ""
+                line = f"- {msg}"
+                if action:
+                    line += f"  \n  → {action}"
+                if ev_txt:
+                    line += f"  \n  · 근거: {ev_txt}"
+                st.markdown(line)
+        else:
+            ok = items[0] if items else {}
+            msg = str(ok.get("message") or "특이사항 없음").strip()
+            st.markdown(f"**{section}**  \n✅ 문제없음  \n- {msg}")
 
 
 def _milestone_panel() -> None:
