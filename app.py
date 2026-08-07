@@ -1065,22 +1065,39 @@ def _render_original_preview(doc: dict) -> None:
 
     if kind == "pdf":
         # Edge blocks data:/PDF iframes; render pages as images in a scroll box.
+        import html as html_lib
+
         pages, total, err = pdf_page_pngs(path, max_pages=20, scale=1.15)
         if err:
             st.warning(err)
             st.caption("원본 다운로드 또는 `추출 텍스트`로 확인해 주세요.")
             return
         if total > len(pages):
-            st.caption(
+            footer = (
                 f"미리보기: 앞 {len(pages)} / 전체 {total}페이지 · "
                 "전체는 원본 다운로드로 확인하세요."
             )
         else:
-            st.caption(f"미리보기: {total}페이지")
+            footer = f"미리보기: {total}페이지"
+        box_h = 620
         components.html(
-            pdf_pages_preview_html(pages, max_width_px=680, box_height_px=640),
-            height=660,
+            pdf_pages_preview_html(
+                pages,
+                max_width_px=680,
+                box_height_px=box_h,
+                attach_external_footer=True,
+            ),
+            height=box_h + 4,
             scrolling=False,
+        )
+        # Footer outside components.html — Streamlit iframes clip in-frame footers.
+        st.markdown(
+            "<div style='margin-top:-14px;padding:8px 12px 10px;text-align:right;"
+            "border:1px solid #d1d5db;border-top:1px solid #e5e7eb;"
+            "border-radius:0 0 10px 10px;background:#f9fafb;'>"
+            f"<span style='font-size:12px;color:#6b7280;line-height:1.4;'>"
+            f"{html_lib.escape(footer)}</span></div>",
+            unsafe_allow_html=True,
         )
         return
 

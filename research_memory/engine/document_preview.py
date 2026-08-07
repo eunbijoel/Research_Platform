@@ -147,6 +147,7 @@ def pdf_pages_preview_html(
     *,
     max_width_px: int = 680,
     box_height_px: int = 640,
+    attach_external_footer: bool = False,
 ) -> str:
     """Wrap rendered PDF page PNGs in a scrollable preview box."""
     parts: list[str] = []
@@ -166,12 +167,20 @@ def pdf_pages_preview_html(
     inner = "".join(parts) or (
         "<p style='color:#6b7280;padding:12px;'>미리볼 페이지가 없습니다.</p>"
     )
+    # Leave bottom open when footer is rendered outside components.html
+    # (Streamlit iframes often clip in-iframe footers).
+    if attach_external_footer:
+        radius = "10px 10px 0 0"
+        border_bottom = "border-bottom:none;"
+    else:
+        radius = "10px"
+        border_bottom = ""
     return (
-        "<div style='max-height:"
-        f"{box_height_px}px;overflow:auto;border:1px solid #d1d5db;"
-        "border-radius:10px;padding:14px 12px;background:#f3f4f6;'>"
+        f"<div style='border:1px solid #d1d5db;{border_bottom}"
+        f"border-radius:{radius};overflow:hidden;background:#f3f4f6;'>"
+        f"<div style='height:{box_height_px}px;overflow:auto;padding:14px 12px;'>"
         f"<div style='margin:0 auto;max-width:{max_width_px}px;'>{inner}</div>"
-        "</div>"
+        "</div></div>"
     )
 
 
