@@ -1028,6 +1028,7 @@ def _render_original_preview(doc: dict) -> None:
     from research_memory.engine.document_preview import (
         docx_to_html,
         pdf_page_pngs,
+        pdf_pages_preview_html,
         preview_kind,
         resolve_document_file,
         safe_download_name,
@@ -1063,8 +1064,8 @@ def _render_original_preview(doc: dict) -> None:
     )
 
     if kind == "pdf":
-        # Edge blocks data:/PDF iframes; render pages as images instead.
-        pages, total, err = pdf_page_pngs(path, max_pages=20, scale=1.6)
+        # Edge blocks data:/PDF iframes; render pages as images in a scroll box.
+        pages, total, err = pdf_page_pngs(path, max_pages=20, scale=1.15)
         if err:
             st.warning(err)
             st.caption("원본 다운로드 또는 `추출 텍스트`로 확인해 주세요.")
@@ -1076,8 +1077,11 @@ def _render_original_preview(doc: dict) -> None:
             )
         else:
             st.caption(f"미리보기: {total}페이지")
-        for i, png in enumerate(pages):
-            st.image(png, caption=f"{i + 1}페이지", use_container_width=True)
+        components.html(
+            pdf_pages_preview_html(pages, max_width_px=680, box_height_px=640),
+            height=660,
+            scrolling=False,
+        )
         return
 
     if kind == "docx":

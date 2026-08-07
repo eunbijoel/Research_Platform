@@ -142,6 +142,39 @@ def pdf_page_pngs(
             pass
 
 
+def pdf_pages_preview_html(
+    pages: list[bytes],
+    *,
+    max_width_px: int = 680,
+    box_height_px: int = 640,
+) -> str:
+    """Wrap rendered PDF page PNGs in a scrollable preview box."""
+    parts: list[str] = []
+    for i, png in enumerate(pages):
+        b64 = base64.b64encode(png).decode("ascii")
+        parts.append(
+            "<div style='margin:0 auto 14px;text-align:center;max-width:"
+            f"{max_width_px}px;'>"
+            f"<img src='data:image/png;base64,{b64}' "
+            f"alt='page {i + 1}' "
+            "style='display:block;width:100%;height:auto;"
+            "border:1px solid #e5e7eb;border-radius:4px;"
+            "background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.04);'/>"
+            f"<div style='font-size:12px;color:#6b7280;margin-top:6px;'>"
+            f"{i + 1}페이지</div></div>"
+        )
+    inner = "".join(parts) or (
+        "<p style='color:#6b7280;padding:12px;'>미리볼 페이지가 없습니다.</p>"
+    )
+    return (
+        "<div style='max-height:"
+        f"{box_height_px}px;overflow:auto;border:1px solid #d1d5db;"
+        "border-radius:10px;padding:14px 12px;background:#f3f4f6;'>"
+        f"<div style='margin:0 auto;max-width:{max_width_px}px;'>{inner}</div>"
+        "</div>"
+    )
+
+
 def pdf_iframe_html(path: Path, *, height: int = 720) -> tuple[str, str]:
     """Legacy data-URI iframe embed (often blocked by Edge). Prefer pdf_page_pngs."""
     try:
