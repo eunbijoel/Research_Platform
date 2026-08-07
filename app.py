@@ -903,80 +903,90 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
     tab_preview, tab_sum, tab_related = st.tabs(["Preview", "Summary", "Related"])
 
     with tab_preview:
-        edit_key = f"lib_edit_mode_{doc_id}"
-        if edit_key not in st.session_state:
-            st.session_state[edit_key] = False
-
-        e1, e2 = st.columns([1, 4])
-        if e1.button(
-            "Done" if st.session_state[edit_key] else "Edit",
-            key=f"lib-edit-toggle-{doc_id}",
-            use_container_width=True,
-        ):
-            st.session_state[edit_key] = not st.session_state[edit_key]
-            st.rerun()
-
-        if st.session_state[edit_key]:
-            new_title = st.text_input(
-                "Title",
-                value=doc.get("title") or "",
-                key=f"lib-edit-title-{doc_id}",
-            )
-            new_project = st.text_input(
-                "Project ID",
-                value=doc.get("project_id") or "",
-                key=f"lib-edit-project-{doc_id}",
-            )
-            role_options = ["연구문서", "참고자료"]
-            current_role_label = (
-                "참고자료" if _document_role_of(doc) == ROLE_REFERENCE else "연구문서"
-            )
-            new_role_label = st.radio(
-                "문서 역할",
-                role_options,
-                index=role_options.index(current_role_label),
-                horizontal=True,
-                key=f"lib-edit-role-{doc_id}",
-            )
-            new_doc_type = st.text_input(
-                "Type",
-                value=doc.get("doc_type") or "",
-                key=f"lib-edit-type-{doc_id}",
-            )
-            new_text = st.text_area(
-                "Body",
-                value=doc.get("full_text") or "",
-                height=420,
-                key=f"lib-edit-body-{doc_id}",
-            )
-            if st.button("Save changes", type="primary", key=f"lib-edit-save-{doc_id}"):
-                with st.spinner("Saving and re-indexing…"):
-                    repo.update_document(
-                        doc_id,
-                        title=new_title.strip(),
-                        project_id=new_project.strip(),
-                        full_text=new_text,
-                        document_role=(
-                            ROLE_REFERENCE
-                            if new_role_label == "참고자료"
-                            else ROLE_PROJECT
-                        ),
-                        doc_type=new_doc_type.strip() or "other",
-                    )
-                st.session_state[edit_key] = False
-                st.session_state.pop(f"ai_summary_{doc_id}", None)
-                st.success("Saved.")
-                st.rerun()
+        preview_mode = st.radio(
+            "보기",
+            ["원본 보기", "추출 텍스트"],
+            horizontal=True,
+            key=f"lib-preview-mode-{doc_id}",
+            help="원본 보기=업로드 파일 형태 · 추출 텍스트=검색/편집용 평문",
+        )
+        if preview_mode == "원본 보기":
+            _render_original_preview(doc)
         else:
-            text = (doc.get("full_text") or "").strip()
-            if not text:
-                st.caption("미리볼 텍스트가 없습니다.")
+            edit_key = f"lib_edit_mode_{doc_id}"
+            if edit_key not in st.session_state:
+                st.session_state[edit_key] = False
+
+            e1, e2 = st.columns([1, 4])
+            if e1.button(
+                "Done" if st.session_state[edit_key] else "Edit",
+                key=f"lib-edit-toggle-{doc_id}",
+                use_container_width=True,
+            ):
+                st.session_state[edit_key] = not st.session_state[edit_key]
+                st.rerun()
+
+            if st.session_state[edit_key]:
+                new_title = st.text_input(
+                    "Title",
+                    value=doc.get("title") or "",
+                    key=f"lib-edit-title-{doc_id}",
+                )
+                new_project = st.text_input(
+                    "Project ID",
+                    value=doc.get("project_id") or "",
+                    key=f"lib-edit-project-{doc_id}",
+                )
+                role_options = ["연구문서", "참고자료"]
+                current_role_label = (
+                    "참고자료" if _document_role_of(doc) == ROLE_REFERENCE else "연구문서"
+                )
+                new_role_label = st.radio(
+                    "문서 역할",
+                    role_options,
+                    index=role_options.index(current_role_label),
+                    horizontal=True,
+                    key=f"lib-edit-role-{doc_id}",
+                )
+                new_doc_type = st.text_input(
+                    "Type",
+                    value=doc.get("doc_type") or "",
+                    key=f"lib-edit-type-{doc_id}",
+                )
+                new_text = st.text_area(
+                    "Body",
+                    value=doc.get("full_text") or "",
+                    height=420,
+                    key=f"lib-edit-body-{doc_id}",
+                )
+                if st.button("Save changes", type="primary", key=f"lib-edit-save-{doc_id}"):
+                    with st.spinner("Saving and re-indexing…"):
+                        repo.update_document(
+                            doc_id,
+                            title=new_title.strip(),
+                            project_id=new_project.strip(),
+                            full_text=new_text,
+                            document_role=(
+                                ROLE_REFERENCE
+                                if new_role_label == "참고자료"
+                                else ROLE_PROJECT
+                            ),
+                            doc_type=new_doc_type.strip() or "other",
+                        )
+                    st.session_state[edit_key] = False
+                    st.session_state.pop(f"ai_summary_{doc_id}", None)
+                    st.success("Saved.")
+                    st.rerun()
             else:
-                st.text(text)
-                st.caption(f"{len(text):,} characters")
+                text = (doc.get("full_text") or "").strip()
+                if not text:
+                    st.caption("미리볼 텍스트가 없습니다.")
+                else:
+                    st.text(text)
+                    st.caption(f"{len(text):,} characters")
 
     with tab_sum:
-        st.caption("원문은 Preview에서 보세요.")
+        st.caption("원문/원본은 Preview에서 보세요.")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Project", doc.get("project_id") or "—")
         m2.metric("Type", doc.get("doc_type") or "—")
@@ -1011,6 +1021,105 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
                 if cols[1].button("Open", key=f"rel-{r['id']}"):
                     st.session_state.library_selected_id = r["id"]
                     st.rerun()
+
+
+def _render_original_preview(doc: dict) -> None:
+    """Render uploaded original file when possible; otherwise download fallback."""
+    from research_memory.engine.document_preview import (
+        docx_to_html,
+        pdf_page_pngs,
+        preview_kind,
+        resolve_document_file,
+        safe_download_name,
+        table_preview_records,
+        text_file_preview,
+    )
+
+    path = resolve_document_file(doc)
+    kind = preview_kind(
+        path,
+        file_type=str(doc.get("file_type") or ""),
+        filename=str(doc.get("filename") or ""),
+    )
+    dl_name = safe_download_name(doc, path)
+
+    if path is None:
+        st.warning(
+            "원본 파일을 찾지 못했습니다. "
+            "`추출 텍스트` 탭에서 평문을 보거나, 파일을 다시 업로드해 주세요."
+        )
+        return
+
+    meta_cols = st.columns([3, 1])
+    meta_cols[0].caption(
+        f"원본: `{path.name}` · {kind} · {path.stat().st_size:,} bytes"
+    )
+    meta_cols[1].download_button(
+        "원본 다운로드",
+        data=path.read_bytes(),
+        file_name=dl_name,
+        use_container_width=True,
+        key=f"lib-orig-dl-{doc.get('id')}",
+    )
+
+    if kind == "pdf":
+        # Edge blocks data:/PDF iframes; render pages as images instead.
+        pages, total, err = pdf_page_pngs(path, max_pages=20, scale=1.6)
+        if err:
+            st.warning(err)
+            st.caption("원본 다운로드 또는 `추출 텍스트`로 확인해 주세요.")
+            return
+        if total > len(pages):
+            st.caption(
+                f"미리보기: 앞 {len(pages)} / 전체 {total}페이지 · "
+                "전체는 원본 다운로드로 확인하세요."
+            )
+        else:
+            st.caption(f"미리보기: {total}페이지")
+        for i, png in enumerate(pages):
+            st.image(png, caption=f"{i + 1}페이지", use_container_width=True)
+        return
+
+    if kind == "docx":
+        html_body, err = docx_to_html(path)
+        if err:
+            st.warning(err)
+            return
+        components.html(html_body, height=740, scrolling=True)
+        return
+
+    if kind == "text":
+        text, err = text_file_preview(path)
+        if err:
+            st.warning(err)
+            return
+        if path.suffix.lower() in {".md", ".markdown"}:
+            st.markdown(text)
+        else:
+            st.text(text)
+        return
+
+    if kind == "table":
+        rows, err = table_preview_records(path)
+        if err:
+            st.warning(err)
+            return
+        st.dataframe(rows, use_container_width=True)
+        st.caption("상위 행만 미리봅니다.")
+        return
+
+    if kind == "hwpx":
+        st.info(
+            "HWPX는 앱 내 원본 레이아웃 미리보기가 제한됩니다. "
+            "아래 다운로드 후 한글에서 열어 확인해 주세요."
+        )
+        st.caption("검색·Chat용 추출 텍스트는 `추출 텍스트` 탭에서 볼 수 있습니다.")
+        return
+
+    st.info(
+        f"`{path.suffix or kind}` 형식은 원본 화면 미리보기를 아직 지원하지 않습니다. "
+        "원본 다운로드로 확인해 주세요."
+    )
 
 
 def _document_insight_card(doc: dict) -> None:
