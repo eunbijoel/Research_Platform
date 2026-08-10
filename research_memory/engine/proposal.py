@@ -52,7 +52,7 @@ DRAFT_KEYS = [
 
 DRAFT_LABELS = {
     "necessity": "참여 필요성",
-    "center_role": "우리 센터의 담당 역할",
+    "center_role": "담당 역할",
     "work_details": "세부 수행내용",
     "yearly_plan": "연차별 수행계획",
     "deliverables": "예상 산출물",
@@ -91,8 +91,10 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
             "역량", "모듈", "책임",
         ],
         "instruction": (
-            "우리 센터 담당 역할만 작성하세요. 기존 연구·보고서·제안서·연구노트 근거로 "
-            "구체적 역할 범위와 경계를 서술하세요. 다른 참여사 전체 역할은 쓰지 마세요."
+            "담당 역할만 작성하세요. 기존 연구·보고서·제안서·연구노트 근거로 "
+            "구체적 역할 범위와 경계를 서술하세요. "
+            "'총괄'은 RFP/근거에 명시된 경우만 쓰고, 기본은 주관·담당·역할 분담으로 표현하세요. "
+            "다른 참여사 전체 역할은 쓰지 마세요."
         ),
     },
     "work_details": {
@@ -119,7 +121,7 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
         "keywords": ["연차", "단계", "일정", "로드맵", "1차", "2차", "마일스톤", "기간"],
         "instruction": (
             "연차별 수행계획만 작성하세요. 사업기간을 반영해 연차/단계별로 수행할 일과 "
-            "산출 시점을 구분하세요. 근거가 부족하면 [확인 필요]로 표시하세요."
+            "산출 시점을 구분하세요. 근거가 부족하면 확인 필요로 표시하세요."
         ),
     },
     "deliverables": {
@@ -145,8 +147,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
         "rfp_fields": ["kpi", "evaluation_criteria", "tech_requirements"],
         "keywords": ["KPI", "지표", "성능", "목표", "평가", "달성", "정량"],
         "instruction": (
-            "KPI 초안만 작성하세요. RFP KPI·평가기준과 연구문서의 성능/성과 지표를 연결하세요. "
-            "수치가 근거에 없으면 [확인 필요]로 두세요."
+            "KPI 초안만 작성하세요. RFP KPI·평가기준과 연구 성과 지표를 연결하세요. "
+            "수치가 근거에 없으면 확인 필요로 두세요."
         ),
     },
     "consortium_role": {
@@ -157,8 +159,9 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
         "rfp_fields": ["consortium_conditions", "mandatory_requirements"],
         "keywords": ["컨소시엄", "주관", "참여기관", "협력", "분담", "인터페이스", "역할"],
         "instruction": (
-            "컨소시엄 내 우리 센터 역할만 작성하세요. 타 기관과의 인터페이스·책임 경계를 "
-            "명확히 하고, 합의 필요 사항은 [확인 필요]로 표시하세요."
+            "컨소시엄 내 역할만 작성하세요. 타 기관과의 인터페이스·책임 경계를 "
+            "명확히 하고, 합의 필요 사항은 확인 필요로 표시하세요. "
+            "'총괄'은 근거에 있을 때만 사용하세요."
         ),
     },
     "expected_effects": {
@@ -312,14 +315,15 @@ def suggest_roles(
         return _heuristic_roles(rfp, evidence)
 
     prompt = f"""당신은 공공 R&D 컨소시엄 제안서 작성을 돕는 보조 도구입니다.
-[RFP 분석]과 [Knowledge Base 근거]만 사용해 우리 센터 역할 후보를 최대 3개 제안하세요.
+[RFP 분석]과 [Knowledge Base 근거]만 사용해 역할 후보를 최대 3개 제안하세요.
 JSON 배열만 출력. 각 원소 키: role, reason, related_requirements, evidence, open_questions (문자열)
 
 규칙:
-- evidence는 KB 근거에 실제로 있는 내용만, 파일명을 함께 표시. 없으면 "{NOT_FOUND}"
-- 근거 없는 추론에는 "[AI 제안]" 표시
-- 전체 제안서 완성이 아니라 우리 센터 파트만
-- 기술 역량은 연구문서, 예산/의무/제재는 참고규정 근거를 구분해서 언급
+- evidence는 KB 근거에 실제로 있는 내용만, 짧은 문서명을 함께 표시. 없으면 "{NOT_FOUND}"
+- 근거 없는 추론은 추측임을 밝히되 [AI 제안] 같은 태그 문구는 쓰지 마세요.
+- role 이름은 '총괄'을 기본으로 쓰지 마세요. RFP/근거에 명시된 경우만 '총괄'.
+  기본은 주관·담당·참여·역할 분담 등 구체적 표현.
+- 기술 역량은 연구 근거, 예산/의무/제재는 규정 근거를 구분해서 언급
 
 [RFP 분석]
 {json.dumps(rfp, ensure_ascii=False, indent=2)}
@@ -381,16 +385,16 @@ def generate_section_draft(
     label = DRAFT_LABELS.get(section_key, section_key)
     spec = SECTION_SPECS.get(section_key) or {}
     instruction = str(spec.get("instruction") or f"{label}만 작성하세요.")
-    research_text = _evidence_text(research_evidence, label="연구문서")
-    reference_text = _evidence_text(reference_evidence, label="참고규정")
+    research_text = _evidence_text(research_evidence, label="연구 근거")
+    reference_text = _evidence_text(reference_evidence, label="규정 근거")
     review_block = ""
     if (review_notes or "").strip():
         review_block = f"""
 [초안 검토 피드백 — 이 섹션만 반영]
 {(review_notes or "").strip()}
 - 위 피드백을 반영해 이 섹션만 다시 작성하세요.
-- 근거가 없으면 새 사실을 만들지 말고 [확인 필요]로 남기세요.
-- 과도한 확정 표현은 [AI 제안] 또는 [확인 필요]로 완화하세요.
+- 근거가 없으면 새 사실을 만들지 말고 확인 필요로 남기세요.
+- 과도한 확정 표현(총괄·반드시·확정 등)은 완화하세요.
 """
 
     if not llm_available():
@@ -402,32 +406,32 @@ def generate_section_draft(
             reference_evidence,
         )
 
-    prompt = f"""당신은 공공 R&D 컨소시엄 제안서의 "우리 센터 담당 파트" 초안 작성 보조 도구입니다.
-지금은 전체 초안이 아니라 **하나의 섹션만** 작성합니다.
-JSON 객체만 출력하세요. 키는 정확히 "{section_key}" 하나만 (값은 문자열).
+    prompt = f"""당신은 공공 R&D 제안서 초안 작성 보조 도구입니다.
+지금은 **하나의 섹션만** 작성합니다. JSON 객체만 출력하세요. 키는 정확히 "{section_key}" 하나 (값은 문자열).
 
 섹션: {label} ({section_key})
 지시: {instruction}
 {review_block}
-규칙:
-- 문장 앞에 [연구문서], [참고규정], [AI 제안], [확인 필요] 중 하나를 붙이세요.
-- 아래 제공된 근거만 사용하세요. 다른 섹션(역할/수행/산출물/준수 등) 내용을 섞지 마세요.
-- [연구문서]/[참고규정]은 근거에 실제 있는 내용만, 가능하면 파일명을 괄호로 표기.
-- 수치·예산·기업명은 근거에 없으면 [확인 필요].
-- 과거 문장 복붙 금지. 이번 RFP와 선택한 역할에 맞게 작성.
-- 요약 한 덩어리가 아니라, 해당 섹션에 필요한 구체 문장으로 작성.
-- 근거가 부족한 내용을 임의로 보완하지 마세요.
+문체·표기 규칙:
+- 제출용에 가까운 일반 제안서 문체로 쓰세요. 내부 메모/디버그 말투 금지.
+- 문장 앞에 [연구문서], [참고규정], [AI 제안], [확인 필요] 같은 태그를 붙이지 마세요.
+- 근거가 있는 내용은 필요 시 문장 끝에 (짧은 문서명)만 붙이세요. file=, score=, location= 표기 금지.
+- 근거가 없으면 새 사실을 만들지 말고 '확인 필요'로만 표시하세요.
+- '총괄'은 RFP나 근거에 명시된 경우만 사용하고, 기본은 주관·담당·역할 분담으로 쓰세요.
+- 아래 제공된 근거만 사용하세요. 다른 섹션 내용을 섞지 마세요.
+- 수치·예산·기업명은 근거에 없으면 확인 필요.
+- 과거 문장 복붙 금지. 이번 RFP와 역할에 맞게 작성.
 
 [RFP 분석]
 {json.dumps(rfp, ensure_ascii=False, indent=2)}
 
-[선택한 역할]
+[역할]
 {json.dumps(selected_role, ensure_ascii=False, indent=2)}
 
-[이 섹션용 연구문서 근거]
+[이 섹션용 연구 근거]
 {research_text}
 
-[이 섹션용 참고규정 근거]
+[이 섹션용 규정 근거]
 {reference_text}
 """
     try:
@@ -780,29 +784,29 @@ def _heuristic_review(
     for key, text in sections.items():
         if key == "open_questions":
             continue
-        if "[확인 필요]" in text or "[AI 제안]" in text:
+        if "[확인 필요]" in text or "[AI 제안]" in text or "확인 필요" in text:
             findings.append(
                 {
                     "section": DRAFT_LABELS.get(key, key),
                     "check_type": "unsupported_claim",
                     "status": "문제없음",
-                    "message": "불확실 표현([확인 필요]/[AI 제안])이 사용되어 있습니다.",
+                    "message": "불확실 표현(확인 필요)이 사용되어 있습니다.",
                     "evidence": [],
                     "suggested_action": "유지",
                 }
             )
             continue
         if ("총괄" in text or "반드시" in text or "확정" in text) and (
-            "[연구문서]" not in text and "[참고규정]" not in text
+            "(" not in text and "확인 필요" not in text
         ):
             findings.append(
                 {
                     "section": DRAFT_LABELS.get(key, key),
                     "check_type": "unsupported_claim",
                     "status": "확인 필요",
-                    "message": "확정·총괄 표현이 있으나 근거 태그가 약합니다.",
+                    "message": "확정·총괄 표현이 있으나 근거 표기가 약합니다.",
                     "evidence": [c.filename for c in research[:2]],
-                    "suggested_action": "[확인 필요] 또는 [AI 제안]으로 완화",
+                    "suggested_action": "주관·담당으로 완화하거나 확인 필요로 표시",
                 }
             )
     # Compliance
@@ -945,19 +949,14 @@ def build_markdown(
         "",
         f"_생성일시: {datetime.now().strftime('%Y-%m-%d %H:%M')}_",
         "",
-        "> 제출 전 검토용 센터 파트 초안입니다. 전체 제안서 자동완성이 아닙니다.",
-        "",
-        "## 1. RFP 핵심 정보",
+        "## RFP 요약",
         f"- 사업 목적: {rfp.get('purpose', NOT_FOUND)}",
         f"- 발주기관: {rfp.get('organization', NOT_FOUND)}",
         f"- 사업기간: {rfp.get('duration', NOT_FOUND)}",
         f"- 예산: {rfp.get('budget', NOT_FOUND)}",
         "",
-        "## 2. 선택한 역할 후보",
-        f"- 역할명: {selected_role.get('role', NOT_FOUND)}",
-        f"- 추천 이유: {selected_role.get('reason', NOT_FOUND)}",
+        f"**역할:** {selected_role.get('role', NOT_FOUND)}",
         "",
-        "## 3. 우리 센터 담당 제안 초안",
     ]
     for key, label in DRAFT_LABELS.items():
         lines.append(f"### {label}")
@@ -965,22 +964,15 @@ def build_markdown(
         lines.append("")
 
     if research or reference:
-        lines.append("## 4. Knowledge Base 근거")
+        lines.append("## 참고 근거")
         if research:
-            lines.append("### 연구문서")
+            lines.append("### 연구 자료")
             lines.extend(_format_evidence_lines(research, start=1))
         if reference:
             start = len(research) + 1
-            lines.append("### 참고규정")
+            lines.append("### 규정·운영요령")
             lines.extend(_format_evidence_lines(reference, start=start))
 
-    lines.extend(
-        [
-            "---",
-            "※ AI 초안입니다. `[확인 필요]` 항목은 담당자 검토가 필요합니다. "
-            "기술 근거는 연구문서, 예산·의무·제재는 참고규정(운영요령 등)을 우선 사용합니다.",
-        ]
-    )
     return "\n".join(lines)
 
 
@@ -992,13 +984,14 @@ def export_docx_bytes(
     document = Document()
     document.add_heading(f"제안 초안 - {rfp.get('project_name', NOT_FOUND)}", level=0)
     document.add_paragraph(f"생성일시: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    document.add_paragraph("제출 전 검토용 센터 파트 초안 (전체 제안서 자동완성 아님)")
-    document.add_heading("선택한 역할", level=1)
+    document.add_heading("RFP 요약", level=1)
+    document.add_paragraph(f"사업 목적: {rfp.get('purpose', NOT_FOUND)}")
+    document.add_paragraph(f"발주기관: {rfp.get('organization', NOT_FOUND)}")
+    document.add_paragraph(f"사업기간: {rfp.get('duration', NOT_FOUND)}")
+    document.add_paragraph(f"예산: {rfp.get('budget', NOT_FOUND)}")
     document.add_paragraph(f"역할: {selected_role.get('role', NOT_FOUND)}")
-    document.add_paragraph(f"이유: {selected_role.get('reason', NOT_FOUND)}")
-    document.add_heading("우리 센터 담당 초안", level=1)
     for key, label in DRAFT_LABELS.items():
-        document.add_heading(label, level=2)
+        document.add_heading(label, level=1)
         document.add_paragraph(str(draft.get(key, NOT_FOUND)))
     buf = BytesIO()
     document.save(buf)
@@ -1194,11 +1187,13 @@ def _evidence_text(evidence: list[Citation], *, label: str = "근거") -> str:
         return f"({label} 없음)"
     blocks = []
     for i, c in enumerate(evidence, start=1):
-        role = normalize_document_role(c.document_role)
-        tag = "[참고규정]" if role == ROLE_REFERENCE else "[연구문서]"
-        blocks.append(
-            f"[{i}] {tag} file={c.filename} | location={c.location} | score={c.score:.3f}\n{c.snippet}"
-        )
+        name = (c.filename or "문서").strip()
+        loc = (c.location or "").strip()
+        head = f"[{i}] {name}"
+        if loc:
+            head += f" · {loc}"
+        snippet = (c.snippet or "").strip()
+        blocks.append(f"{head}\n{snippet}" if snippet else head)
     return "\n\n".join(blocks)
 
 
@@ -1211,18 +1206,19 @@ def _format_evidence_lines(
     for offset, c in enumerate(evidence):
         i = start + offset
         if isinstance(c, Citation):
-            role = normalize_document_role(c.document_role)
-            tag = "[참고규정]" if role == ROLE_REFERENCE else "[연구문서]"
-            lines.append(f"[{i}] {tag} {c.filename} / {c.location} (score={c.score:.3f})")
-            lines.append(c.snippet)
+            name = (c.filename or "문서").strip()
+            loc = (c.location or "").strip()
+            line = f"[{i}] {name}"
+            if loc:
+                line += f" · {loc}"
+            lines.append(line)
         else:
-            role = normalize_document_role(c.get("document_role"))
-            tag = "[참고규정]" if role == ROLE_REFERENCE else "[연구문서]"
-            lines.append(
-                f"[{i}] {tag} {c.get('filename')} / {c.get('location')} "
-                f"(score={float(c.get('score', 0)):.3f})"
-            )
-            lines.append(str(c.get("snippet", "")))
+            name = str(c.get("filename") or "문서").strip()
+            loc = str(c.get("location") or "").strip()
+            line = f"[{i}] {name}"
+            if loc:
+                line += f" · {loc}"
+            lines.append(line)
         lines.append("")
     return lines
 
@@ -1281,7 +1277,7 @@ def _heuristic_rfp(source: str, chunks: list[dict[str, str]]) -> dict[str, Any]:
 
 def _heuristic_roles(rfp: dict[str, Any], evidence: list[Citation]) -> list[dict[str, Any]]:
     ev = (
-        f"[연구문서] {evidence[0].filename}: {evidence[0].snippet[:160]}"
+        f"{evidence[0].filename}: {evidence[0].snippet[:160]}"
         if evidence
         else NOT_FOUND
     )
@@ -1289,8 +1285,8 @@ def _heuristic_roles(rfp: dict[str, Any], evidence: list[Citation]) -> list[dict
     related = ", ".join(reqs[:3]) if isinstance(reqs, list) else str(reqs)
     return [
         {
-            "role": "[AI 제안] Document Intelligence / Research Memory 담당",
-            "reason": f"[AI 제안] RFP 요구({related})와 센터 문서지능 역량 연계",
+            "role": "Document Intelligence / Research Memory 담당",
+            "reason": f"RFP 요구({related})와 문서지능·연구메모리 역량 연계 (추측 — 확인 필요)",
             "related_requirements": related or NOT_FOUND,
             "evidence": ev,
             "open_questions": "주관기관 역할 분담 확인 필요",
@@ -1309,28 +1305,29 @@ def _heuristic_section(
     if section_key == "compliance_notes":
         if reference:
             return (
-                f"[참고규정] ({reference[0].filename}) {reference[0].snippet[:280]}"
+                f"운영요령 등 규정 확인이 필요합니다 "
+                f"({reference[0].filename}). {reference[0].snippet[:280]}"
             )
-        return "[확인 필요] 참고규정(운영요령) 근거 없음 — Center 자료에 참고자료를 확인하세요."
+        return "확인 필요 — 운영요령·참고규정 근거가 Memory에 없습니다."
     if section_key == "necessity":
         return (
-            f"[연구문서] 사업명: {rfp.get('project_name', NOT_FOUND)}. "
-            f"Memory 근거 기반 센터 파트 초안이 필요합니다."
+            f"본 사업({rfp.get('project_name', NOT_FOUND)}) 참여 필요성은 "
+            f"RFP 목적과 기존 연구 성과를 바탕으로 구체화해야 합니다. 확인 필요."
         )
     if section_key == "center_role":
         cite = (
             f"({research[0].filename}) {research[0].snippet[:200]}"
             if research
-            else "근거 없음"
+            else "근거 없음 — 확인 필요"
         )
-        return f"[연구문서] 역할: {selected_role.get('role', NOT_FOUND)}. {cite}"
+        return f"담당 역할: {selected_role.get('role', NOT_FOUND)}. {cite}"
     if section_key == "open_questions":
-        return "[확인 필요] LLM 연결 후 섹션별 초안 품질을 재생성하세요."
+        return "확인 필요 — LLM 연결 후 섹션별 초안을 재생성하세요."
     if research:
-        return f"[연구문서] ({research[0].filename}) {research[0].snippet[:240]}"
+        return f"({research[0].filename}) {research[0].snippet[:240]}"
     if reference:
-        return f"[참고규정] ({reference[0].filename}) {reference[0].snippet[:240]}"
-    return f"[확인 필요] {label} — 섹션 근거 없음"
+        return f"({reference[0].filename}) {reference[0].snippet[:240]}"
+    return f"확인 필요 — {label} 섹션 근거 없음"
 
 
 def _parse_role_list(raw: str) -> list[dict[str, Any]]:

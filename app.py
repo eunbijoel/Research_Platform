@@ -290,9 +290,8 @@ def main() -> None:
         _research_note_panel()
     elif page == PAGE_PROPOSAL:
         _roadmap_banner(
-            "Proposal Intelligence",
-            "Upload an RFP and draft the center’s contribution from Memory evidence — "
-            "not full proposal auto-completion. Early access below.",
+            "제안서",
+            "RFP와 Memory 근거로 제안 초안을 작성·검토합니다.",
         )
         _proposal_panel()
     elif page == PAGE_SIMILARITY:
@@ -1972,11 +1971,8 @@ def _render_similarity_result(result: dict) -> None:
 
 
 def _proposal_panel() -> None:
-    st.subheader("RFP → center draft")
-    st.caption(
-        "전체 제안서 자동완성이 아닙니다. "
-        "RFP + Memory(연구문서/참고규정) 근거로 제출 전 검토용 센터 파트 초안을 만듭니다."
-    )
+    st.subheader("RFP → 제안 초안")
+    st.caption("RFP와 Memory 근거로 제안 초안을 만듭니다.")
     project_meta = {
         (p.get("project_id") or "").strip(): p
         for p in repo.list_projects()
@@ -2152,16 +2148,10 @@ def _proposal_panel() -> None:
     selected = st.session_state.get("prop_selected") or selected
     if draft and selected:
         st.markdown("### Draft")
-        if draft.get("mode"):
-            mode_note = str(draft.get("mode") or "")
-            if draft.get("revised_sections"):
-                keys = draft.get("revised_sections") or []
-                labels = [DRAFT_LABELS_UI.get(k, k) for k in keys]
-                st.caption(
-                    f"mode: `{mode_note}` · Draft v2 · 수정 섹션: {', '.join(labels) or '-'}"
-                )
-            else:
-                st.caption(f"mode: `{mode_note}` · section-aware")
+        if draft.get("revised_sections"):
+            keys = draft.get("revised_sections") or []
+            labels = [DRAFT_LABELS_UI.get(k, k) for k in keys]
+            st.caption(f"Draft v2 · 수정 섹션: {', '.join(labels) or '-'}")
         for key, label in (
             ("necessity", "참여 필요성"),
             ("center_role", "담당 역할"),
@@ -2176,7 +2166,7 @@ def _proposal_panel() -> None:
             r_n = len(sec_ev.get("research") or [])
             f_n = len(sec_ev.get("reference") or [])
             if r_n or f_n:
-                st.caption(f"이 섹션 근거: 연구문서 {r_n} · 참고규정 {f_n}")
+                st.caption(f"근거 {r_n + f_n}건")
 
         st.markdown("### 초안 검토")
         if st.button("초안 검토", key="prop_review_btn"):
