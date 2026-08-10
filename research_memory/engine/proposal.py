@@ -76,8 +76,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
             "기술주권", "온프레미스", "AIDC",
         ],
         "instruction": (
-            "참여 필요성만 작성하세요. 2~3개 문단의 제안서 본문처럼 자연스럽게 서술하세요. "
-            "근거 문장을 나열하거나 복사하지 말고, RFP 목적과 기존 연구 문제인식을 녹여 쓰세요."
+            "참여 필요성만 작성. 보고용 개조식(불릿 또는 짧은 명사형 문장)으로 3~6항목. "
+            "합니다/습니다체 금지. 근거 문장 나열·복붙 금지."
         ),
     },
     "center_role": {
@@ -91,9 +91,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
             "역량", "모듈", "책임",
         ],
         "instruction": (
-            "담당 역할만 작성하세요. 한두 문단으로 역할 범위·경계를 제안서 문체로 서술하세요. "
-            "근거 목록을 이어 붙이지 마세요. "
-            "'총괄'은 RFP/근거에 명시된 경우만 쓰고, 기본은 주관·담당·역할 분담으로 표현하세요."
+            "담당 역할만 작성. 개조식으로 역할 범위·경계를 3~6항목. "
+            "합니다/습니다체 금지. '총괄'은 근거에 있을 때만, 기본은 주관·담당·역할 분담."
         ),
     },
     "work_details": {
@@ -107,9 +106,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
             "아키텍처", "표준", "제안",
         ],
         "instruction": (
-            "세부 수행내용만 작성하세요. 1., 2., 3. 과업 단위로 나누되, "
-            "각 항목은 한 문장 인용이 아니라 2~4문장의 수행 방법 서술이어야 합니다. "
-            "근거 문서명·location을 본문에 나열하지 마세요."
+            "세부 수행내용만 작성. 1. 2. 3. 과업 단위 개조식. "
+            "각 항목은 '~함/~개발/~구축' 명사형. 합니다/습니다체·출처 나열 금지."
         ),
     },
     "yearly_plan": {
@@ -120,8 +118,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
         "rfp_fields": ["duration", "mandatory_requirements", "kpi"],
         "keywords": ["연차", "단계", "일정", "로드맵", "1차", "2차", "마일스톤", "기간"],
         "instruction": (
-            "연차별 수행계획만 작성하세요. 사업기간을 반영해 연차/단계별로 수행할 일과 "
-            "산출 시점을 구분하세요. 근거가 부족하면 확인 필요로 표시하세요."
+            "연차별 수행계획만 작성. 연차/단계별 개조식 목록. "
+            "합니다/습니다체 금지. 근거 부족 시 '확인 필요'만 표기."
         ),
     },
     "deliverables": {
@@ -135,8 +133,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
             "deliverable",
         ],
         "instruction": (
-            "예상 산출물만 작성하세요. '- 산출물명: 한 줄 설명' 목록 형태로, "
-            "제안서에 넣을 산출물 목록처럼 짧게 쓰세요. 출처 태그나 file= 표기는 넣지 마세요."
+            "예상 산출물만 작성. '- 산출물명: 한 줄 설명' 개조식 목록. "
+            "합니다/습니다체·출처 태그 금지."
         ),
     },
     "kpi_draft": {
@@ -147,8 +145,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
         "rfp_fields": ["kpi", "evaluation_criteria", "tech_requirements"],
         "keywords": ["KPI", "지표", "성능", "목표", "평가", "달성", "정량"],
         "instruction": (
-            "KPI 초안만 작성하세요. RFP KPI·평가기준과 연구 성과 지표를 연결하세요. "
-            "수치가 근거에 없으면 확인 필요로 두세요."
+            "KPI 초안만 작성. '- 지표명: 목표(수치)' 개조식. "
+            "합니다/습니다체 금지. 수치 근거 없으면 확인 필요."
         ),
     },
     "consortium_role": {
@@ -159,9 +157,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
         "rfp_fields": ["consortium_conditions", "mandatory_requirements"],
         "keywords": ["컨소시엄", "주관", "참여기관", "협력", "분담", "인터페이스", "역할"],
         "instruction": (
-            "컨소시엄 내 역할만 작성하세요. 타 기관과의 인터페이스·책임 경계를 "
-            "명확히 하고, 합의 필요 사항은 확인 필요로 표시하세요. "
-            "'총괄'은 근거에 있을 때만 사용하세요."
+            "컨소시엄 내 역할만 작성. 개조식으로 책임 경계·인터페이스 정리. "
+            "합니다/습니다체 금지. '총괄'은 근거에 있을 때만."
         ),
     },
     "expected_effects": {
@@ -172,8 +169,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
         "rfp_fields": ["purpose", "kpi", "notes"],
         "keywords": ["효과", "성과", "확산", "기대", "기여", "파급", "활용"],
         "instruction": (
-            "기대효과만 작성하세요. 연구문서의 성과·활용 근거와 RFP 목적을 연결해 "
-            "기술적·산업적 효과를 구분하세요."
+            "기대효과만 작성. 기술·산업 효과를 개조식 불릿으로 구분. "
+            "합니다/습니다체 금지."
         ),
     },
     "compliance_notes": {
@@ -187,9 +184,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
             "인건비", "집행", "증빙",
         ],
         "instruction": (
-            "운영요령·참고규정 준수 포인트만 작성하세요. 3~5문장 또는 짧은 불릿으로, "
-            "계상·증빙·제재 등 사전 확인 사항을 제안서 톤으로 정리하세요. "
-            "준수 완료라고 단정하지 말고, 출처 태그는 쓰지 마세요."
+            "운영요령·참고규정 준수 포인트만 작성. 계상·증빙·제재 등 사전 확인 사항을 "
+            "개조식 불릿 3~6개. 합니다/습니다체 금지. 준수 완료 단정 금지."
         ),
     },
     "open_questions": {
@@ -200,8 +196,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
         "rfp_fields": ["notes", "consortium_conditions", "budget", "kpi"],
         "keywords": ["확인", "미정", "협의", "분담", "예산", "범위"],
         "instruction": (
-            "추가 확인이 필요한 사항만 짧은 체크리스트(- 항목)로 나열하세요. "
-            "[확인 필요] 태그는 쓰지 말고, 문장 자체로 확인 사항을 적으세요."
+            "추가 확인 사항만 '- … 확인 필요' 개조식 체크리스트로 나열. "
+            "합니다/습니다체·대괄호 태그 금지."
         ),
     },
 }
@@ -392,9 +388,10 @@ def generate_section_draft(
         review_block = f"""
 [초안 검토 피드백 — 이 섹션만 반영]
 {(review_notes or "").strip()}
-- 위 피드백을 반영해 이 섹션만 다시 작성하세요.
-- 근거가 없으면 새 사실을 만들지 말고 확인 필요로 남기세요.
-- 과도한 확정 표현(총괄·반드시·확정 등)은 완화하세요.
+- 위 피드백을 반영해 이 섹션만 다시 작성.
+- 보고용 개조식 유지(합니다/습니다 금지).
+- 근거 없으면 새 사실 만들지 말고 '확인 필요'로 남김.
+- 과도한 확정 표현(총괄·반드시·확정 등)은 완화.
 """
 
     if not llm_available():
@@ -408,21 +405,24 @@ def generate_section_draft(
             )
         )
 
-    prompt = f"""당신은 공공 R&D 제안서 작성자입니다.
+    prompt = f"""당신은 공공 R&D 제안서(보고서) 작성자입니다.
 지금은 **하나의 섹션만** 작성합니다. JSON 객체만 출력하세요. 키는 정확히 "{section_key}" 하나 (값은 문자열).
 
 섹션: {label} ({section_key})
 지시: {instruction}
 {review_block}
-문체 (매우 중요):
-- 제안서 본문처럼 읽히게 쓰세요. 근거 카드/로그/리스트업 느낌이 나면 안 됩니다.
-- 근거 문장을 그대로 이어 붙이거나 요약 나열하지 말고, 내용을 재구성해 서술하세요.
-- [연구문서], [참고규정], [AI 제안], [확인 필요] 태그를 절대 쓰지 마세요.
-- file=, location=, score=, section 1 · part N 같은 기계적 출처 표기를 본문에 넣지 마세요.
-- 출처가 꼭 필요하면 문단 끝에 (짧은문서명) 한 번만. 매 문장마다 붙이지 마세요.
-- 근거가 없으면 새 사실을 만들지 말고 '확인 필요'라고만 적으세요.
+문체 (필수 — 보고용 개조식):
+- '합니다/습니다/됩니다/입니다' 등 경어·서술체 금지.
+- 명사형·개조식 종결(~함, ~임, ~필요, ~개발, ~구축, ~제시) 또는 '- 항목' 불릿 사용.
+- 예: "온프레미스 AIDC 핵심기술 확보 필요" / "3계층 분산형 참조 아키텍처 설계·개발"
+- 잘못된 예: "…확보가 필수적입니다." / "…역할을 수행할 것입니다."
+- 근거 카드처럼 문장을 이어 붙이지 말고, 내용을 재구성한 개조식 항목으로 정리.
+- [연구문서], [참고규정], [AI 제안], [확인 필요] 태그 금지.
+- file=, location=, score=, section·part 표기 본문 금지.
+- 출처가 꼭 필요하면 항목 끝에 (짧은문서명) 한 번만.
+- 근거 없으면 새 사실 금지, '확인 필요'만 표기.
 - '총괄'은 RFP/근거에 명시된 경우만. 기본은 주관·담당·역할 분담.
-- 아래 근거는 참고용 내부 자료입니다. 본문에 근거 형식을 복사하지 마세요.
+- 아래 근거는 내부 참고용. 근거 형식을 본문에 복사하지 말 것.
 
 [RFP 분석]
 {json.dumps(rfp, ensure_ascii=False, indent=2)}
@@ -1362,24 +1362,20 @@ def _heuristic_section(
     if section_key == "compliance_notes":
         if reference:
             return (
-                f"운영요령 등 규정 확인이 필요합니다 "
-                f"({reference[0].filename}). {reference[0].snippet[:280]}"
+                f"- 연구시설·장비 현물 계상 및 내부공간 임차료 계상 기준 확인 필요 "
+                f"({reference[0].filename})"
             )
-        return "확인 필요 — 운영요령·참고규정 근거가 Memory에 없습니다."
+        return "- 운영요령·참고규정 근거 없음 — 확인 필요"
     if section_key == "necessity":
         return (
-            f"본 사업({rfp.get('project_name', NOT_FOUND)}) 참여 필요성은 "
-            f"RFP 목적과 기존 연구 성과를 바탕으로 구체화해야 합니다. 확인 필요."
+            f"- {rfp.get('project_name', NOT_FOUND)} 참여 필요성 구체화 필요\n"
+            f"- RFP 목적과 기존 연구 성과 연계 서술 필요"
         )
     if section_key == "center_role":
-        cite = (
-            f"({research[0].filename}) {research[0].snippet[:200]}"
-            if research
-            else "근거 없음 — 확인 필요"
-        )
-        return f"담당 역할: {selected_role.get('role', NOT_FOUND)}. {cite}"
+        role = selected_role.get("role", NOT_FOUND)
+        return f"- 담당 역할: {role}\n- 역할 범위·경계 상세화 필요"
     if section_key == "open_questions":
-        return "확인 필요 — LLM 연결 후 섹션별 초안을 재생성하세요."
+        return "- LLM 연결 후 섹션별 초안 재생성 필요"
     if research:
         return f"({research[0].filename}) {research[0].snippet[:240]}"
     if reference:
