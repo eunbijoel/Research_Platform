@@ -97,7 +97,7 @@ MAIN_NAV = [
     (PAGE_PROPOSAL, "🖊️ 제안서"),
 ]
 FUTURE_NAV = [
-    (PAGE_SIMILARITY, "Similarity Intelligence"),
+    (PAGE_SIMILARITY, "🔍 유사도 검토"),
     (PAGE_MILESTONE, "Milestone Intelligence"),
 ]
 
@@ -299,9 +299,8 @@ def main() -> None:
         _proposal_panel()
     elif page == PAGE_SIMILARITY:
         _roadmap_banner(
-            "Similarity Intelligence",
-            "Compare new drafts against organizational Memory to surface reuse and overlap. "
-            "Early access below.",
+            "유사도 검토",
+            "새 초안·문서가 Memory(또는 다른 문서)와 얼마나 겹치는지 문장 단위로 확인합니다.",
         )
         _similarity_panel()
     elif page == PAGE_MILESTONE:
@@ -1845,132 +1844,195 @@ def _rn_preview_html() -> str:
 
 
 def _similarity_panel() -> None:
-    st.subheader("Compare documents")
+    st.subheader("문서 유사도 비교")
     st.caption(
-        "Compare a new draft against organizational Memory, two KB docs, "
-        "or uploaded files. Exact + TF-IDF similar sentence pairs."
+        "새 초안 ↔ Memory, Memory 문서끼리, 또는 업로드 파일끼리 "
+        "비슷한 문장을 찾습니다. (일치 + 유사 문장)"
     )
     mode = st.radio(
-        "Mode",
-        ["Upload vs Knowledge Base", "KB document vs KB document", "Uploads vs Uploads"],
+        "비교 방식",
+        [
+            "업로드 ↔ Memory",
+            "Memory 문서 ↔ Memory 문서",
+            "업로드 ↔ 업로드",
+        ],
         horizontal=True,
+        key="sim_mode",
     )
-    threshold = st.slider("Similarity threshold", 0.5, 0.95, 0.72, 0.01)
+    c_th, c_top = st.columns(2)
+    threshold = c_th.slider("유사도 임계값", 0.5, 0.95, 0.72, 0.01, key="sim_threshold")
+    top_n = int(
+        c_top.number_input("상위 결과 수", min_value=5, max_value=50, value=15, step=5, key="sim_top_n")
+    )
 
-    if mode == "Upload vs Knowledge Base":
-        project_filter = st.text_input(
-            "Limit KB to Project ID (optional)",
-            key="sim_project",
-            placeholder="e.g. DEMO-2026",
+    if mode == "업로드 ↔ Memory":
+        project_meta = {
+            (p.get("project_id") or "").strip(): p
+            for p in repo.list_projects()
+            if (p.get("project_id") or "").strip()
+        }
+        project_choices = [""] + _rn_project_choices()
+
+        def _sim_project_label(pid: str) -> str:
+            if not pid:
+                return "(전체 Memory)"
+            title = (project_meta.get(pid) or {}).get("title") or ""
+            title = str(title).strip()
+            if title and title != pid:
+                return f"{pid} · {title}"
+            return pid
+
+        project_filter = st.selectbox(
+            "Memory 프로젝트 필터",
+            options=project_choices,
+            format_func=_sim_project_label,
+            key="sim_project_select",
+            help="선택한 과제의 ready 문서만 비교합니다. 비우면 전체 Memory.",
         )
         upload = st.file_uploader(
-            "New document to check",
-            type=["pdf", "docx", "txt", "md", "csv", "xlsx", "hwpx"],
+            "비교할 새 문서",
+            type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx"],
             key="sim_upload_kb",
         )
-        if st.button("Run Similarity", type="primary", key="sim_run_kb", disabled=not upload):
-            with st.spinner("Comparing against Memory…"):
+        if st.button("유사도 실행", type="primary", key="sim_run_kb", disabled=not upload):
+            with st.spinner("Memory와 비교 중…"):
                 result = compare_upload_vs_kb(
                     upload.getvalue(),
                     upload.name,
                     repo=repo,
                     threshold=threshold,
-                    project_id=project_filter.strip() or None,
+                    project_id=(project_filter or "").strip() or None,
                 )
-            _render_similarity_result(result)
+            st.session_state["sim_last_result"] = result
 
-    elif mode == "KB document vs KB document":
+    elif mode == "Memory 문서 ↔ Memory 문서":
         docs = [d for d in repo.list_documents() if d.get("status") == "ready"]
         if len(docs) < 2:
-            st.info("Need at least 2 ready documents in the Knowledge Base.")
+            st.info("Memory에 ready 문서가 2개 이상 필요합니다.")
             return
-        labels = {f"{d['filename']} ({d['id'][:8]})": d["id"] for d in docs}
+        labels = {
+            f"{d.get('project_id') or '—'} · {d.get('title') or d['filename']}": d["id"]
+            for d in docs
+        }
         c1, c2 = st.columns(2)
-        a = c1.selectbox("Document A", list(labels.keys()), key="sim_doc_a")
-        b = c2.selectbox("Document B", list(labels.keys()), key="sim_doc_b")
-        if st.button("Run Similarity", type="primary", key="sim_run_pair"):
+        a = c1.selectbox("문서 A", list(labels.keys()), key="sim_doc_a")
+        b = c2.selectbox("문서 B", list(labels.keys()), key="sim_doc_b")
+        if st.button("유사도 실행", type="primary", key="sim_run_pair"):
             if labels[a] == labels[b]:
-                st.warning("Pick two different documents.")
+                st.warning("서로 다른 문서를 선택하세요.")
             else:
-                with st.spinner("Comparing KB documents…"):
+                with st.spinner("Memory 문서 비교 중…"):
                     result = compare_kb_documents(
                         labels[a],
                         labels[b],
                         repo=repo,
                         threshold=threshold,
                     )
-                _render_similarity_result(result)
+                st.session_state["sim_last_result"] = result
 
     else:
         uploads = st.file_uploader(
-            "Upload 2+ documents",
-            type=["pdf", "docx", "txt", "md", "csv", "xlsx", "hwpx"],
+            "비교할 문서 2개 이상",
+            type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx"],
             accept_multiple_files=True,
             key="sim_uploads",
         )
         if st.button(
-            "Run Similarity",
+            "유사도 실행",
             type="primary",
             key="sim_run_uploads",
             disabled=not uploads or len(uploads) < 2,
         ):
-            with st.spinner("Comparing uploads…"):
+            with st.spinner("업로드 문서 비교 중…"):
                 result = compare_uploads(
                     [(f.getvalue(), f.name) for f in uploads],
                     threshold=threshold,
                 )
-            _render_similarity_result(result)
+            st.session_state["sim_last_result"] = result
+
+    last = st.session_state.get("sim_last_result")
+    if last:
+        _render_similarity_result(last, top_n=top_n)
 
 
-def _render_similarity_result(result: dict) -> None:
+def _sim_verdict_label(verdict: str) -> str:
+    return {
+        "exact": "일치",
+        "high": "높음",
+        "medium": "보통",
+        "low": "낮음",
+    }.get(str(verdict or ""), str(verdict or ""))
+
+
+def _render_similarity_result(result: dict, *, top_n: int = 15) -> None:
     if not result.get("ok"):
-        st.error(result.get("error") or "Similarity failed")
+        st.error(result.get("error") or "유사도 비교에 실패했습니다.")
         return
     stats = result.get("stats") or {}
-    st.success(
-        f"pairs={stats.get('pair_count', 0)} · exact={stats.get('exact', 0)} · "
-        f"high={stats.get('high', 0)} · medium={stats.get('medium', 0)} · "
-        f"max_score={stats.get('max_score', 0):.3f}"
-    )
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("유사 쌍", int(stats.get("pair_count") or 0))
+    m2.metric("일치", int(stats.get("exact") or 0))
+    m3.metric("높음", int(stats.get("high") or 0))
+    m4.metric("최고점", f"{float(stats.get('max_score') or 0):.3f}")
+
     meta = []
     if result.get("query_file"):
-        meta.append(f"query={result['query_file']}")
+        meta.append(f"질의 파일: `{result['query_file']}`")
+    if result.get("file_a") and result.get("file_b"):
+        meta.append(f"`{result['file_a']}` ↔ `{result['file_b']}`")
     if result.get("query_units") is not None:
-        meta.append(f"query_units={result['query_units']}")
+        meta.append(f"질의 문장 {result['query_units']}개")
     if result.get("kb_units") is not None:
-        meta.append(f"kb_units={result['kb_units']}")
+        meta.append(f"비교 대상 문장 {result['kb_units']}개")
     if meta:
         st.caption(" · ".join(meta))
-    pairs = result.get("pairs") or []
+
+    pairs = list(result.get("pairs") or [])
     if not pairs:
-        st.info("No similar pairs above threshold.")
+        st.info("임계값 이상의 유사 문장 쌍이 없습니다.")
         return
-    st.dataframe(
-        [
-            {
-                "score": round(p["score"], 3),
-                "verdict": p["verdict"],
-                "type": p["match_type"],
-                "file_a": p["file_a"],
-                "location_a": p["location_a"],
-                "text_a": p["text_a"][:180],
-                "file_b": p["file_b"],
-                "location_b": p["location_b"],
-                "text_b": p["text_b"][:180],
-            }
-            for p in pairs
-        ],
-        use_container_width=True,
-    )
-    with st.expander("Full pair details"):
-        for i, p in enumerate(pairs[:50], start=1):
-            st.markdown(
-                f"**[{i}] {p['verdict']} · {p['score']:.3f} · {p['match_type']}**  \n"
-                f"`{p['file_a']}` / {p['location_a']}  \n"
-                f"> {p['text_a'][:400]}  \n"
-                f"`{p['file_b']}` / {p['location_b']}  \n"
-                f"> {p['text_b'][:400]}"
-            )
+
+    show = pairs[: max(1, int(top_n))]
+    st.markdown(f"#### 상위 {len(show)}개 유사 문장")
+    for i, p in enumerate(show, start=1):
+        verdict = _sim_verdict_label(p.get("verdict"))
+        score = float(p.get("score") or 0)
+        match_type = "일치" if p.get("match_type") == "exact" else "유사"
+        fa = escape(str(p.get("file_a") or ""))
+        fb = escape(str(p.get("file_b") or ""))
+        la = escape(str(p.get("location_a") or ""))
+        lb = escape(str(p.get("location_b") or ""))
+        ta = escape(str(p.get("text_a") or "")[:320])
+        tb = escape(str(p.get("text_b") or "")[:320])
+        st.markdown(
+            f'<div class="rm-card">'
+            f"<strong>[{i}] {escape(verdict)} · {score:.3f} · {escape(match_type)}</strong>"
+            f'<div class="rm-meta">{fa} / {la}</div>'
+            f'<div class="rm-snip">{ta}</div>'
+            f'<div class="rm-meta" style="margin-top:8px;">{fb} / {lb}</div>'
+            f'<div class="rm-snip">{tb}</div>'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    with st.expander("표로 보기 (전체 결과)"):
+        st.dataframe(
+            [
+                {
+                    "점수": round(float(p.get("score") or 0), 3),
+                    "판정": _sim_verdict_label(p.get("verdict")),
+                    "유형": "일치" if p.get("match_type") == "exact" else "유사",
+                    "파일 A": p.get("file_a"),
+                    "위치 A": p.get("location_a"),
+                    "문장 A": str(p.get("text_a") or "")[:180],
+                    "파일 B": p.get("file_b"),
+                    "위치 B": p.get("location_b"),
+                    "문장 B": str(p.get("text_b") or "")[:180],
+                }
+                for p in pairs
+            ],
+            use_container_width=True,
+        )
 
 
 def _proposal_panel() -> None:
