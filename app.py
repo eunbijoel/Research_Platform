@@ -43,6 +43,7 @@ from research_memory.pipeline.extractors import extract_chunks
 from research_memory.pipeline.ingest import ingest_bytes
 from research_memory.engine.proposal import (
     analyze_rfp,
+    build_budget_plan_section,
     build_markdown,
     clean_draft_prose,
     export_docx_bytes,
@@ -2169,6 +2170,23 @@ def _proposal_panel() -> None:
             if r_n or f_n:
                 st.caption(f"근거 {r_n + f_n}건")
 
+        # Budget plan skeleton (append at end). Build on the fly for older drafts.
+        st.markdown("**다음 단계 연구개발비 사용 계획**")
+        st.caption("(단위 : 천원) · 양식 골격만 제공 · 비목 자동 배분 없음")
+        budget_rows = draft.get("budget_plan_table")
+        if not budget_rows:
+            _md, budget_rows = build_budget_plan_section(rfp)
+            draft["budget_plan"] = _md
+            draft["budget_plan_table"] = budget_rows
+            st.session_state["prop_draft"] = draft
+        st.dataframe(budget_rows, use_container_width=True, hide_index=True)
+        with st.expander("연구비 각주·안내"):
+            st.markdown(
+                str(draft.get("budget_plan") or "").split("각주(개조식)")[-1]
+                if "각주(개조식)" in str(draft.get("budget_plan") or "")
+                else str(draft.get("budget_plan") or "")
+            )
+
         st.markdown("### 초안 검토")
         if st.button("초안 검토", key="prop_review_btn"):
             with st.spinner("RFP·연구문서·참고규정 기준으로 초안 검토 중…"):
@@ -2232,6 +2250,7 @@ DRAFT_LABELS_UI = {
     "expected_effects": "기대효과",
     "compliance_notes": "운영요령·준수 포인트",
     "open_questions": "확인 필요",
+    "budget_plan": "연구개발비 사용 계획",
 }
 
 

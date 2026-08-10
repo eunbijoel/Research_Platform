@@ -50,6 +50,9 @@ DRAFT_KEYS = [
     "open_questions",
 ]
 
+# Appended after narrative sections (template table — not LLM-filled amounts).
+BUDGET_PLAN_KEY = "budget_plan"
+
 DRAFT_LABELS = {
     "necessity": "참여 필요성",
     "center_role": "담당 역할",
@@ -61,6 +64,7 @@ DRAFT_LABELS = {
     "expected_effects": "기대효과",
     "compliance_notes": "운영요령·참고규정 준수 포인트",
     "open_questions": "추가 확인이 필요한 사항",
+    "budget_plan": "다음 단계 연구개발비 사용 계획",
 }
 
 # Section-aware draft: which evidence pool + keywords to re-rank (no new retrieval).
@@ -498,9 +502,122 @@ def generate_draft(
     draft["reference_citations"] = [c.to_dict() for c in used_reference]
     draft["section_evidence"] = section_evidence
     draft["mode"] = "llm_section" if llm_available() else "heuristic_section"
+    # Budget plan: empty stage-report skeleton (+ RFP total only). No auto-split.
+    budget_md, budget_rows = build_budget_plan_section(rfp)
+    draft[BUDGET_PLAN_KEY] = budget_md
+    draft["budget_plan_table"] = budget_rows
     if errors:
         draft["error"] = "; ".join(errors)
     return draft
+
+
+def build_budget_plan_section(rfp: dict[str, Any] | None = None) -> tuple[str, list[dict[str, str]]]:
+    """Stage-report style budget skeleton. Amounts left blank except optional RFP total note."""
+    rfp = rfp or {}
+    total_note = _budget_total_note(rfp.get("budget"))
+    cols = [
+        "연구개발기관",
+        "구분",
+        "인건비(내부)",
+        "인건비(외부)",
+        "연구근접지원",
+        "학생인건비(일반)",
+        "학생인건비(특례)",
+        "인건비소계",
+        "시설·장비(일반)",
+        "시설·장비(특례)",
+        "연구재료비",
+        "위탁연구개발비",
+        "국제공동연구개발비",
+        "연구활동비",
+        "연구수당",
+        "보안수당",
+        "직접비소계",
+        "간접비",
+        "합계",
+    ]
+    row_specs: list[tuple[str, str]] = [
+        ("주관연구개발기관", "현금"),
+        ("주관연구개발기관", "현물"),
+        ("주관연구개발기관", "소계"),
+        ("주관연구개발기관", "미지급"),
+        ("공동연구개발기관(A)", "현금"),
+        ("공동연구개발기관(A)", "현물"),
+        ("공동연구개발기관(A)", "소계"),
+        ("공동연구개발기관(A)", "미지급"),
+        ("공동연구개발기관(B)", "현금"),
+        ("공동연구개발기관(B)", "현물"),
+        ("공동연구개발기관(B)", "소계"),
+        ("공동연구개발기관(B)", "미지급"),
+        ("합계(주관+공동)", "현금"),
+        ("합계(주관+공동)", "현물"),
+        ("합계(주관+공동)", "합계(현금+현물)"),
+        ("합계(주관+공동)", "미지급"),
+        ("위탁연구개발기관(A)", "현금"),
+        ("위탁연구개발기관(A)", "현물"),
+        ("위탁연구개발기관(A)", "소계"),
+        ("위탁연구개발기관(A)", "미지급"),
+        ("위탁연구개발기관(B)", "현금"),
+        ("위탁연구개발기관(B)", "현물"),
+        ("위탁연구개발기관(B)", "소계"),
+        ("위탁연구개발기관(B)", "미지급"),
+        ("총계(주관+공동+위탁)", "현금"),
+        ("총계(주관+공동+위탁)", "현물"),
+        ("총계(주관+공동+위탁)", "총계(현금+현물)"),
+        ("총계(주관+공동+위탁)", "미지급"),
+    ]
+    rows: list[dict[str, str]] = []
+    for org, kind in row_specs:
+        row = {c: "" for c in cols}
+        row["연구개발기관"] = org
+        row["구분"] = kind
+        # Only annotate grand-total cash+in-kind with RFP total reference — never invent splits.
+        if org.startswith("총계") and kind.startswith("총계") and total_note not in {
+            "확인 필요",
+            "",
+        }:
+            row["합계"] = total_note
+        rows.append(row)
+
+    header = "| " + " | ".join(cols) + " |"
+    sep = "| " + " | ".join(["---"] * len(cols)) + " |"
+    body_lines = []
+    for row in rows:
+        body_lines.append("| " + " | ".join(row.get(c, "") or "" for c in cols) + " |")
+
+    md_parts = [
+        "5) 다음 단계 연구개발비 사용 계획",
+        "",
+        "(단위 : 천원)",
+        "",
+        f"- RFP 예산(참고): {total_note}",
+        "- 표는 단계보고서 양식 골격임. 기관·비목별 금액은 공란(자동 배분하지 않음).",
+        "- 기관명·현금/현물/미지급·비목 금액은 확인 후 기입.",
+        "",
+        header,
+        sep,
+        *body_lines,
+        "",
+        "각주(개조식)",
+        "- 1｣ 학생인건비 특례 미적용분",
+        "- 2｣ 학생인건비 특례 적용분(영 제20조제4항제1호)",
+        "- 3｣ 연구시설·장비비 특례 미적용분",
+        "- 4｣ 연구시설·장비비 특례 적용분(영 제20조제4항제2호)",
+        "- 5｣ 연구수당: 인건비(현물 포함, 연구근접지원인력 제외)+학생인건비 합계의 20% 이내",
+        "- 6｣ 보안수당: 보안과제 참여연구자별 인건비의 3% 범위(해당 연구자만 지급)",
+    ]
+    return "\n".join(md_parts), rows
+
+
+def _budget_total_note(raw: Any) -> str:
+    text = str(raw or "").strip()
+    if not text or text == NOT_FOUND:
+        return "확인 필요"
+    # Keep original text if no clear number; otherwise surface digits for the total cell.
+    digits = re.sub(r"[^\d.]", "", text.replace(",", ""))
+    if digits and re.search(r"\d", text):
+        return f"{text} ※비목 배분은 확인 필요"
+    return f"{text} ※비목 배분은 확인 필요"
 
 
 REVIEW_CHECK_TYPES = (
@@ -680,6 +797,10 @@ def revise_draft_from_review(
         "llm_section_revised" if llm_available() else "heuristic_section_revised"
     )
     revised["revised_sections"] = revised_keys
+    # Keep / refresh budget skeleton (never LLM-split)
+    budget_md, budget_rows = build_budget_plan_section(rfp)
+    revised[BUDGET_PLAN_KEY] = budget_md
+    revised["budget_plan_table"] = budget_rows
     if errors:
         revised["error"] = "; ".join(
             [str(revised.get("error") or "").strip(), *errors]
@@ -964,7 +1085,10 @@ def build_markdown(
     ]
     for key, label in DRAFT_LABELS.items():
         lines.append(f"### {label}")
-        lines.append(clean_draft_prose(str(draft.get(key, NOT_FOUND))))
+        if key == BUDGET_PLAN_KEY:
+            lines.append(str(draft.get(key) or "").strip() or NOT_FOUND)
+        else:
+            lines.append(clean_draft_prose(str(draft.get(key, NOT_FOUND))))
         lines.append("")
 
     if research or reference:
@@ -996,6 +1120,25 @@ def export_docx_bytes(
     document.add_paragraph(f"역할: {selected_role.get('role', NOT_FOUND)}")
     for key, label in DRAFT_LABELS.items():
         document.add_heading(label, level=1)
+        if key == BUDGET_PLAN_KEY:
+            document.add_paragraph("(단위 : 천원) — 단계보고서 양식 골격. 비목 배분은 확인 필요.")
+            rows = draft.get("budget_plan_table") or []
+            if not rows:
+                document.add_paragraph(str(draft.get(key) or NOT_FOUND)[:2000])
+                continue
+            cols = list(rows[0].keys())
+            table = document.add_table(rows=1 + len(rows), cols=len(cols))
+            table.style = "Table Grid"
+            for j, col in enumerate(cols):
+                table.rows[0].cells[j].text = str(col)
+            for i, row in enumerate(rows, start=1):
+                for j, col in enumerate(cols):
+                    table.rows[i].cells[j].text = str(row.get(col) or "")
+            document.add_paragraph(
+                "각주: 1｣학생인건비 특례 미적용 2｣특례 적용 3｣시설·장비 특례 미적용 "
+                "4｣특례 적용 5｣연구수당 20% 이내 6｣보안수당 인건비 3% 이내"
+            )
+            continue
         document.add_paragraph(clean_draft_prose(str(draft.get(key, NOT_FOUND))))
     buf = BytesIO()
     document.save(buf)
