@@ -363,7 +363,7 @@ def _home_page() -> None:
     c3.metric("Chunks", stats["chunk_count"])
     c4.metric("Last Updated", stats["last_indexed"])
 
-    st.markdown("#### Quick Actions")
+    st.markdown("#### 빠른 메뉴")
     q1, q2, q3 = st.columns(3)
     if q1.button("+ Upload", type="primary", use_container_width=True):
         _go(PAGE_LIBRARY, focus_upload=True)
