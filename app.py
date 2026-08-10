@@ -1998,23 +1998,6 @@ def _render_similarity_result(result: dict, *, top_n: int = 50) -> None:
     img_stats = stats.get("image") or {}
     overlap = result.get("overlap_stats") or {}
 
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("유사 문장 쌍", int(sent_stats.get("pair_count") or 0))
-    m2.metric("유사 페이지 쌍", int(page_stats.get("pair_count") or 0))
-    m3.metric("유사 이미지 쌍", int(img_stats.get("pair_count") or 0))
-    m4.metric(
-        "추출",
-        f"문장 {result.get('query_units', len(result.get('sentences') or []))} · "
-        f"페이지 {result.get('page_units', len(result.get('pages') or []))} · "
-        f"이미지 {result.get('image_units', len(result.get('images') or []))}",
-    )
-    if overlap:
-        st.caption(
-            f"문장 겹침 {overlap.get('overlapped_sentences', 0)} / "
-            f"{overlap.get('total_sentences', 0)} "
-            f"({overlap.get('overlap_ratio_pct', 0)}%)"
-        )
-
     meta = []
     if result.get("query_file"):
         meta.append(f"질의 파일: `{result['query_file']}`")
@@ -2026,19 +2009,15 @@ def _render_similarity_result(result: dict, *, top_n: int = 50) -> None:
     if meta:
         st.caption(" · ".join(meta))
 
-    logs = result.get("log_entries") or []
-    if logs:
-        with st.expander("처리 로그", expanded=False):
-            st.dataframe(logs, use_container_width=True, hide_index=True)
-
     sentence_pairs = list(result.get("sentence_pairs") or result.get("pairs") or [])
     page_pairs = list(result.get("page_pairs") or [])
     image_pairs = list(result.get("image_pairs") or [])
     matched_pngs = list(result.get("matched_page_pngs") or [])
+    logs = result.get("log_entries") or []
     n = max(1, int(top_n))
 
-    tab_s, tab_i, tab_p, tab_png = st.tabs(
-        ["유사 문장", "유사 이미지", "유사 페이지", "페이지 PNG"]
+    tab_s, tab_i, tab_p, tab_sum = st.tabs(
+        ["유사 문장", "유사 이미지", "유사 페이지", "분석 요약"]
     )
 
     with tab_s:
@@ -2069,7 +2048,7 @@ def _render_similarity_result(result: dict, *, top_n: int = 50) -> None:
         if not image_pairs:
             st.info(
                 "유사 이미지 쌍이 없습니다. PDF/DOCX 등에서 이미지가 추출됐는지 "
-                "처리 로그의 이미지 개수를 확인하세요."
+                "분석 요약의 처리 로그에서 이미지 개수를 확인하세요."
             )
         else:
             show = image_pairs[:n]
@@ -2104,6 +2083,8 @@ def _render_similarity_result(result: dict, *, top_n: int = 50) -> None:
                         cb.image(p["image_bytes_b"], use_container_width=True)
 
     with tab_p:
+        # 유사 페이지 표 + 페이지 PNG를 한 탭에 (이전 Doc_Similarity와 같이)
+        st.markdown("#### 유사 페이지 (텍스트)")
         if not page_pairs:
             st.info("임계값 이상의 유사 페이지 쌍이 없습니다.")
         else:
@@ -2126,20 +2107,125 @@ def _render_similarity_result(result: dict, *, top_n: int = 50) -> None:
                 use_container_width=True,
                 hide_index=True,
             )
+            with st.expander("페이지 텍스트 나란히 비교", expanded=False):
+                for i, p in enumerate(show[:15], start=1):
+                    st.markdown(
+                        f"**[{i}] {_sim_verdict_label(p.get('verdict'))} · "
+                        f"{float(p.get('score') or p.get('similarity') or 0):.3f}** — "
+                        f"`{p.get('file_a')}` / {p.get('location_a')} ↔ "
+                        f"`{p.get('file_b')}` / {p.get('location_b')}"
+                    )
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.write(str(p.get("text_a") or "")[:1200])
+                    with c2:
+                        st.write(str(p.get("text_b") or "")[:1200])
+                    if i < min(15, len(show)):
+                        st.divider()
 
-    with tab_png:
+        st.divider()
+        st.markdown("#### 페이지 PNG (유사 문장 근거 하이라이트)")
+        st.caption("PDF만 렌더됩니다. 노란색 = 이 페이지 쌍을 만든 유사 문장 위치.")
         if not matched_pngs:
-            st.info("유사 문장 기반 페이지 PNG가 없습니다. (PDF만 렌더 가능)")
+            st.info("유사 문장 기반 페이지 PNG가 없습니다.")
         else:
-            st.caption(f"매칭 페이지 스크린샷 {len(matched_pngs)}개")
-            for i, shot in enumerate(matched_pngs[:20], start=1):
-                label = (
-                    shot.get("pair_label")
-                    or f"{shot.get('file_name')} p.{shot.get('page_number')}"
-                )
-                st.markdown(f"**[{i}] {label}**")
-                if shot.get("png_bytes"):
-                    st.image(shot["png_bytes"], use_container_width=True)
+            from collections import OrderedDict
+
+            combined = [s for s in matched_pngs if s.get("side") == "AB"]
+            pairs: OrderedDict = OrderedDict()
+            if combined:
+                for s in combined:
+                    label = s.get("pair_label") or f"{s.get('file_a')} = {s.get('file_b')}"
+                    pairs[label] = s
+            else:
+                sides_map: OrderedDict = OrderedDict()
+                for s in matched_pngs:
+                    label = s.get("pair_label") or f"{s.get('file_name')} p.{s.get('page_number')}"
+                    sides_map.setdefault(label, {"A": None, "B": None, "meta": s})
+                    sides_map[label][s.get("side", "A")] = s
+                for label, sides in sides_map.items():
+                    pairs[label] = sides
+
+            st.caption(f"매칭 페이지 쌍 {len(pairs)}개")
+            meta_rows = []
+            for label, item in pairs.items():
+                if isinstance(item, dict) and item.get("side") == "AB":
+                    meta_rows.append(
+                        {
+                            "비교": label,
+                            "파일 A": item.get("file_a", ""),
+                            "페이지 A": item.get("page_a", ""),
+                            "파일 B": item.get("file_b", ""),
+                            "페이지 B": item.get("page_b", ""),
+                            "유사문장쌍": item.get("pair_count", ""),
+                        }
+                    )
+                else:
+                    meta = item.get("meta", item) if isinstance(item, dict) else {}
+                    meta_rows.append(
+                        {
+                            "비교": label,
+                            "파일 A": meta.get("file_a", ""),
+                            "페이지 A": meta.get("page_a", ""),
+                            "파일 B": meta.get("file_b", ""),
+                            "페이지 B": meta.get("page_b", ""),
+                            "유사문장쌍": meta.get("pair_count", ""),
+                        }
+                    )
+            if meta_rows:
+                st.dataframe(meta_rows, use_container_width=True, hide_index=True)
+
+            st.markdown("##### 나란히 미리보기")
+            for i, (label, item) in enumerate(list(pairs.items())[:30], start=1):
+                with st.expander(str(label), expanded=(i == 1)):
+                    if isinstance(item, dict) and item.get("side") == "AB":
+                        st.markdown(
+                            f"**A:** {item.get('file_a')} · p.{item.get('page_a')}  |  "
+                            f"**B:** {item.get('file_b')} · p.{item.get('page_b')}"
+                        )
+                        if item.get("png_bytes"):
+                            st.image(item["png_bytes"], use_container_width=True)
+                    elif isinstance(item, dict):
+                        a, b = item.get("A") or {}, item.get("B") or {}
+                        ca, cb = st.columns(2)
+                        with ca:
+                            if a:
+                                st.caption(f"A · {a.get('file_name')} p.{a.get('page_number')}")
+                                if a.get("png_bytes"):
+                                    st.image(a["png_bytes"], use_container_width=True)
+                        with cb:
+                            if b:
+                                st.caption(f"B · {b.get('file_name')} p.{b.get('page_number')}")
+                                if b.get("png_bytes"):
+                                    st.image(b["png_bytes"], use_container_width=True)
+
+    with tab_sum:
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("유사 문장 쌍", int(sent_stats.get("pair_count") or 0))
+        m2.metric("유사 페이지 쌍", int(page_stats.get("pair_count") or 0))
+        m3.metric("유사 이미지 쌍", int(img_stats.get("pair_count") or 0))
+        m4.metric("페이지 PNG", len(matched_pngs))
+        st.caption(
+            f"추출 — 문장 {result.get('query_units', len(result.get('sentences') or []))} · "
+            f"페이지 {result.get('page_units', len(result.get('pages') or []))} · "
+            f"이미지 {result.get('image_units', len(result.get('images') or []))}"
+        )
+        if overlap:
+            st.caption(
+                f"문장 겹침 {overlap.get('overlapped_sentences', 0)} / "
+                f"{overlap.get('total_sentences', 0)} "
+                f"({overlap.get('overlap_ratio_pct', 0)}%)"
+            )
+        if logs:
+            st.markdown("#### 처리 로그")
+            st.dataframe(logs, use_container_width=True, hide_index=True)
+        matrix = result.get("file_matrix")
+        if matrix is not None:
+            st.markdown("#### 파일 × 파일 유사 문장 쌍")
+            try:
+                st.dataframe(matrix, use_container_width=True)
+            except Exception:  # noqa: BLE001
+                st.write(matrix)
 
 
 def _proposal_panel() -> None:
