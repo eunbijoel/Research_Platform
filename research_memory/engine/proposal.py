@@ -502,17 +502,32 @@ def generate_draft(
     draft["reference_citations"] = [c.to_dict() for c in used_reference]
     draft["section_evidence"] = section_evidence
     draft["mode"] = "llm_section" if llm_available() else "heuristic_section"
-    # Budget plan: empty stage-report skeleton (+ RFP total only). No auto-split.
-    budget_md, budget_rows = build_budget_plan_section(rfp)
+    # Budget plan: empty stage-report skeleton (+ optional saved scenario).
+    budget_md, budget_rows = build_budget_plan_section(
+        rfp,
+        total_cheon=None,
+        lead_pct=None,
+    )
     draft[BUDGET_PLAN_KEY] = budget_md
     draft["budget_plan_table"] = budget_rows
+    draft.pop("budget_scenario_total", None)
+    draft.pop("budget_scenario_lead_pct", None)
     if errors:
         draft["error"] = "; ".join(errors)
     return draft
 
 
-def build_budget_plan_section(rfp: dict[str, Any] | None = None) -> tuple[str, list[dict[str, str]]]:
-    """Stage-report style budget skeleton. Amounts left blank except optional RFP total note."""
+def build_budget_plan_section(
+    rfp: dict[str, Any] | None = None,
+    *,
+    total_cheon: int | None = None,
+    lead_pct: float | None = None,
+) -> tuple[str, list[dict[str, str]]]:
+    """Stage-report budget skeleton.
+
+    Optional scenario: split total by lead-org % into 주관/공동(A) cash totals only.
+    Category cells stay blank (no invented 비목 split).
+    """
     rfp = rfp or {}
     total_note = _budget_total_note(rfp.get("budget"))
     cols = [
@@ -566,24 +581,35 @@ def build_budget_plan_section(rfp: dict[str, Any] | None = None) -> tuple[str, l
         ("총계(주관+공동+위탁)", "총계(현금+현물)"),
         ("총계(주관+공동+위탁)", "미지급"),
     ]
+
+    scenario = _budget_scenario_amounts(total_cheon, lead_pct)
     rows: list[dict[str, str]] = []
     for org, kind in row_specs:
         row = {c: "" for c in cols}
         row["연구개발기관"] = org
         row["구분"] = kind
-        # Only annotate grand-total cash+in-kind with RFP total reference — never invent splits.
-        if org.startswith("총계") and kind.startswith("총계") and total_note not in {
-            "확인 필요",
-            "",
-        }:
+        if scenario:
+            amt = _scenario_cell_amount(org, kind, scenario)
+            if amt is not None:
+                row["합계"] = _fmt_cheon(amt)
+                # 소계/현금 행에만 직접비소계도 동일(비목 미배분 가정)
+                if kind in {"현금", "소계"} and not org.startswith("합계") and not org.startswith(
+                    "총계"
+                ):
+                    row["직접비소계"] = _fmt_cheon(amt)
+        elif (
+            org.startswith("총계")
+            and kind.startswith("총계")
+            and total_note not in {"확인 필요", ""}
+        ):
             row["합계"] = total_note
         rows.append(row)
 
     header = "| " + " | ".join(cols) + " |"
     sep = "| " + " | ".join(["---"] * len(cols)) + " |"
-    body_lines = []
-    for row in rows:
-        body_lines.append("| " + " | ".join(row.get(c, "") or "" for c in cols) + " |")
+    body_lines = [
+        "| " + " | ".join(row.get(c, "") or "" for c in cols) + " |" for row in rows
+    ]
 
     md_parts = [
         "5) 다음 단계 연구개발비 사용 계획",
@@ -591,32 +617,114 @@ def build_budget_plan_section(rfp: dict[str, Any] | None = None) -> tuple[str, l
         "(단위 : 천원)",
         "",
         f"- RFP 예산(참고): {total_note}",
-        "- 표는 단계보고서 양식 골격임. 기관·비목별 금액은 공란(자동 배분하지 않음).",
-        "- 기관명·현금/현물/미지급·비목 금액은 확인 후 기입.",
-        "",
-        header,
-        sep,
-        *body_lines,
-        "",
-        "각주(개조식)",
-        "- 1｣ 학생인건비 특례 미적용분",
-        "- 2｣ 학생인건비 특례 적용분(영 제20조제4항제1호)",
-        "- 3｣ 연구시설·장비비 특례 미적용분",
-        "- 4｣ 연구시설·장비비 특례 적용분(영 제20조제4항제2호)",
-        "- 5｣ 연구수당: 인건비(현물 포함, 연구근접지원인력 제외)+학생인건비 합계의 20% 이내",
-        "- 6｣ 보안수당: 보안과제 참여연구자별 인건비의 3% 범위(해당 연구자만 지급)",
     ]
+    if scenario:
+        md_parts.extend(
+            [
+                f"- 시나리오 총액: {_fmt_cheon(scenario['total'])}천원",
+                f"- 주관비중: {scenario['lead_pct']:.1f}% "
+                f"(주관 {_fmt_cheon(scenario['lead'])} / "
+                f"공동(A) {_fmt_cheon(scenario['partner'])})",
+                "- 가정: 전액 현금·직접비, 위탁 0, 현물/미지급 0, 비목 세분 없음(확인 필요)",
+            ]
+        )
+    else:
+        md_parts.extend(
+            [
+                "- 표는 단계보고서 양식 골격임. 기관·비목별 금액은 공란(또는 시나리오 배분으로 채움).",
+                "- 기관명·현금/현물/미지급·비목 금액은 확인 후 기입.",
+            ]
+        )
+    md_parts.extend(
+        [
+            "",
+            header,
+            sep,
+            *body_lines,
+            "",
+            "각주(개조식)",
+            "- 1｣ 학생인건비 특례 미적용분",
+            "- 2｣ 학생인건비 특례 적용분(영 제20조제4항제1호)",
+            "- 3｣ 연구시설·장비비 특례 미적용분",
+            "- 4｣ 연구시설·장비비 특례 적용분(영 제20조제4항제2호)",
+            "- 5｣ 연구수당: 인건비(현물 포함, 연구근접지원인력 제외)+학생인건비 합계의 20% 이내",
+            "- 6｣ 보안수당: 보안과제 참여연구자별 인건비의 3% 범위(해당 연구자만 지급)",
+        ]
+    )
     return "\n".join(md_parts), rows
+
+
+def parse_budget_amount_cheon(raw: Any) -> int | None:
+    """Best-effort parse of a budget string into 천원. Returns None if unknown."""
+    text = str(raw or "").strip()
+    if not text or text == NOT_FOUND:
+        return None
+    # 억 원
+    m = re.search(r"([\d.]+)\s*억", text.replace(",", ""))
+    if m:
+        return int(round(float(m.group(1)) * 100_000))
+    # 백만 원
+    m = re.search(r"([\d.]+)\s*백만", text.replace(",", ""))
+    if m:
+        return int(round(float(m.group(1)) * 1_000))
+    # 만 원
+    m = re.search(r"([\d.]+)\s*만", text.replace(",", ""))
+    if m:
+        return int(round(float(m.group(1)) * 10))
+    # explicit 천원
+    m = re.search(r"([\d.]+)\s*천원", text.replace(",", ""))
+    if m:
+        return int(round(float(m.group(1))))
+    # bare integer — treat as 천원 only if reasonably large or labeled
+    m = re.search(r"([\d]{3,})", text.replace(",", ""))
+    if m and ("천원" in text or "예산" in text or len(m.group(1)) >= 4):
+        return int(m.group(1))
+    return None
+
+
+def _budget_scenario_amounts(
+    total_cheon: int | None, lead_pct: float | None
+) -> dict[str, Any] | None:
+    if total_cheon is None or lead_pct is None:
+        return None
+    total = max(0, int(total_cheon))
+    pct = max(0.0, min(100.0, float(lead_pct)))
+    lead = int(round(total * pct / 100.0))
+    partner = max(0, total - lead)
+    return {
+        "total": total,
+        "lead_pct": pct,
+        "lead": lead,
+        "partner": partner,
+    }
+
+
+def _scenario_cell_amount(org: str, kind: str, scenario: dict[str, Any]) -> int | None:
+    lead = int(scenario["lead"])
+    partner = int(scenario["partner"])
+    total = int(scenario["total"])
+    # Only cash / 소계 / aggregate cash+in-kind totals — not 현물/미지급/위탁.
+    if kind in {"현물", "미지급"}:
+        return None
+    if org == "주관연구개발기관" and kind in {"현금", "소계"}:
+        return lead
+    if org == "공동연구개발기관(A)" and kind in {"현금", "소계"}:
+        return partner
+    if org.startswith("합계(주관+공동)") and kind in {"현금", "합계(현금+현물)"}:
+        return total
+    if org.startswith("총계") and kind in {"현금", "총계(현금+현물)"}:
+        return total
+    return None
+
+
+def _fmt_cheon(n: int) -> str:
+    return f"{int(n):,}"
 
 
 def _budget_total_note(raw: Any) -> str:
     text = str(raw or "").strip()
     if not text or text == NOT_FOUND:
         return "확인 필요"
-    # Keep original text if no clear number; otherwise surface digits for the total cell.
-    digits = re.sub(r"[^\d.]", "", text.replace(",", ""))
-    if digits and re.search(r"\d", text):
-        return f"{text} ※비목 배분은 확인 필요"
     return f"{text} ※비목 배분은 확인 필요"
 
 
@@ -797,10 +905,26 @@ def revise_draft_from_review(
         "llm_section_revised" if llm_available() else "heuristic_section_revised"
     )
     revised["revised_sections"] = revised_keys
-    # Keep / refresh budget skeleton (never LLM-split)
-    budget_md, budget_rows = build_budget_plan_section(rfp)
+    # Keep / refresh budget skeleton (preserve scenario inputs if present)
+    total_s = draft.get("budget_scenario_total")
+    lead_s = draft.get("budget_scenario_lead_pct")
+    try:
+        total_s = int(total_s) if total_s is not None else None
+    except (TypeError, ValueError):
+        total_s = None
+    try:
+        lead_s = float(lead_s) if lead_s is not None else None
+    except (TypeError, ValueError):
+        lead_s = None
+    budget_md, budget_rows = build_budget_plan_section(
+        rfp, total_cheon=total_s, lead_pct=lead_s
+    )
     revised[BUDGET_PLAN_KEY] = budget_md
     revised["budget_plan_table"] = budget_rows
+    if total_s is not None:
+        revised["budget_scenario_total"] = total_s
+    if lead_s is not None:
+        revised["budget_scenario_lead_pct"] = lead_s
     if errors:
         revised["error"] = "; ".join(
             [str(revised.get("error") or "").strip(), *errors]

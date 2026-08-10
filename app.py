@@ -49,6 +49,7 @@ from research_memory.engine.proposal import (
     export_docx_bytes,
     gather_kb_evidence_split,
     generate_draft,
+    parse_budget_amount_cheon,
     parse_rfp_bytes,
     review_draft_quality,
     revise_draft_from_review,
@@ -2170,15 +2171,66 @@ def _proposal_panel() -> None:
             if r_n or f_n:
                 st.caption(f"근거 {r_n + f_n}건")
 
-        # Budget plan skeleton (append at end). Build on the fly for older drafts.
+        # Budget plan skeleton + optional total/lead-share scenario.
         st.markdown("**다음 단계 연구개발비 사용 계획**")
-        st.caption("(단위 : 천원) · 양식 골격만 제공 · 비목 자동 배분 없음")
+        st.caption(
+            "(단위 : 천원) · 시나리오 배분은 주관/공동(A) 합계만 채움 · 비목 세분은 확인 필요"
+        )
+        parsed_default = parse_budget_amount_cheon(rfp.get("budget"))
+        default_total = int(
+            draft.get("budget_scenario_total")
+            or parsed_default
+            or 0
+        )
+        default_lead = float(draft.get("budget_scenario_lead_pct") or 100.0)
+        b1, b2, b3 = st.columns([2, 1, 1])
+        total_in = b1.number_input(
+            "총액(천원)",
+            min_value=0,
+            value=max(0, default_total),
+            step=1000,
+            key=f"prop_budget_total_{draft.get('mode', 'v1')}",
+        )
+        lead_in = b2.number_input(
+            "주관비중(%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=min(100.0, max(0.0, default_lead)),
+            step=5.0,
+            key=f"prop_budget_lead_{draft.get('mode', 'v1')}",
+        )
+        apply = b3.button("시나리오 배분 적용", key="prop_budget_apply", use_container_width=True)
+        if apply:
+            _md, budget_rows = build_budget_plan_section(
+                rfp, total_cheon=int(total_in), lead_pct=float(lead_in)
+            )
+            draft["budget_plan"] = _md
+            draft["budget_plan_table"] = budget_rows
+            draft["budget_scenario_total"] = int(total_in)
+            draft["budget_scenario_lead_pct"] = float(lead_in)
+            st.session_state["prop_draft"] = draft
+            st.rerun()
+
         budget_rows = draft.get("budget_plan_table")
         if not budget_rows:
             _md, budget_rows = build_budget_plan_section(rfp)
             draft["budget_plan"] = _md
             draft["budget_plan_table"] = budget_rows
             st.session_state["prop_draft"] = draft
+        if draft.get("budget_scenario_total") is not None:
+            lead_a = int(
+                round(
+                    int(draft["budget_scenario_total"])
+                    * float(draft.get("budget_scenario_lead_pct") or 0)
+                    / 100.0
+                )
+            )
+            st.caption(
+                f"적용됨: 총 {_fmt_budget_ui(int(draft['budget_scenario_total']))}천원 · "
+                f"주관 {float(draft.get('budget_scenario_lead_pct') or 0):.1f}% "
+                f"({_fmt_budget_ui(lead_a)}) / "
+                f"공동(A) {_fmt_budget_ui(int(draft['budget_scenario_total']) - lead_a)}"
+            )
         st.dataframe(budget_rows, use_container_width=True, hide_index=True)
         with st.expander("연구비 각주·안내"):
             st.markdown(
@@ -2252,6 +2304,10 @@ DRAFT_LABELS_UI = {
     "open_questions": "확인 필요",
     "budget_plan": "연구개발비 사용 계획",
 }
+
+
+def _fmt_budget_ui(n: int) -> str:
+    return f"{int(n):,}"
 
 
 def _render_proposal_review(findings: list) -> None:
