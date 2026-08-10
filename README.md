@@ -36,6 +36,7 @@ flowchart TB
     CHAT[Chat]
     NOTE[Research Note]
     PROP[Proposal]
+    SIM[Similarity]
     EVI[Evidence<br/>연구문서 / 참고규정]
     CHAT --> EVI
     NOTE --> EVI
@@ -48,15 +49,15 @@ flowchart TB
   U --> CHAT
   U --> NOTE
   U --> PROP
+  U --> SIM
   LIB -->|browse| KB
+  SIM -->|compare docs| KB
   EVI -->|retrieve| IDX
   IDX --> KB
 
   NOTE -.->|notes return| UP
   PROP -.->|drafts return| UP
 ```
-
-
 
 지원 형식: PDF, DOCX, TXT/MD, CSV, XLSX, HWPX
 
@@ -68,22 +69,22 @@ flowchart TB
 ## UI tabs
 
 
-| Tab       | 하는 일                                                                             |
-| --------- | -------------------------------------------------------------------------------- |
-| **홈**     | Research Memory 대시보드. 최근 문서·빠른 업로드/탐색 진입.                                        |
-| **라이브러리** | 과제 폴더별 문서 탐색·업로드·삭제. 문서 역할(연구문서/참고자료)과 Document Insight.                         |
-| **채팅**    | Memory에 질문. 답변마다 출처(파일·위치)와 `[연구문서]`/`[참고규정]` 구분을 붙입니다. 근거가 없으면 거절합니다.           |
-| **연구노트**  | 프로젝트 맞춤 연구노트 초안. Memory + 추가자료 참고, 표 미리보기·DOCX/HWPX 다운로드·Memory 저장.              |
-| **제안서**   | RFP/공고문을 넣고, **연구문서 + 참고규정(운영요령)** 근거로 센터 파트 초안·준수 포인트를 만듭니다. 전체 제안서 자동완성이 아닙니다. |
+| Tab          | 하는 일                                                                             |
+| ------------ | -------------------------------------------------------------------------------- |
+| **홈**        | Research Memory 대시보드. 최근 문서·빠른 업로드/탐색 진입.                                        |
+| **라이브러리**    | 과제 폴더별 문서 탐색·업로드·삭제. 문서 역할(연구문서/참고자료)과 Document Insight.                         |
+| **채팅**       | Memory에 질문. 답변마다 출처(파일·위치)와 `[연구문서]`/`[참고규정]` 구분을 붙입니다. 근거가 없으면 거절합니다.           |
+| **연구노트**     | 프로젝트 맞춤 연구노트 초안. Memory + 추가자료 참고, 표 미리보기·DOCX/HWPX 다운로드·Memory 저장.              |
+| **제안서**      | RFP/공고문을 넣고, **연구문서 + 참고규정(운영요령)** 근거로 센터 파트 초안·준수 포인트를 만듭니다. 전체 제안서 자동완성이 아닙니다. |
+| **유사도 검토**   | 새 문서 ↔ Memory(또는 문서끼리) 문장·페이지·이미지를 비교합니다. MiniLM + pHash, 표/페이지 PNG로 중복·재사용 검토. |
 
 
 Future Capabilities
 
 
-| Tab            | 하는 일                                               |
-| -------------- | -------------------------------------------------- |
-| **Similarity** | 새 문서 ↔ Memory (또는 문서끼리) 비슷한 문장을 찾습니다. 중복·재사용 검토용.  |
-| **Milestone**  | 과제별 예정 산출물과 Memory 문서를 대조합니다. 빠진 것·기한 지난 것을 보여줍니다. |
+| Tab           | 하는 일                                               |
+| ------------- | -------------------------------------------------- |
+| **Milestone** | 과제별 예정 산출물과 Memory 문서를 대조합니다. 빠진 것·기한 지난 것을 보여줍니다. |
 
 
 ---
@@ -107,5 +108,6 @@ research_memory/
   pipeline/            문서 파싱 · 메타/Fact · 인제스트
   kb/                  Knowledge Base
   engine/              Chat · Similarity · Proposal · Tracking
+                 docsim/  (유사도: MiniLM · 파서 · pHash)
 ```
 
