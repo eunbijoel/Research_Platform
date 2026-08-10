@@ -1846,8 +1846,8 @@ def _rn_preview_html() -> str:
 def _similarity_panel() -> None:
     st.subheader("문서 유사도 비교")
     st.caption(
-        "새 초안 ↔ Memory, Memory 문서끼리, 또는 업로드 파일끼리 "
-        "비슷한 문장을 찾습니다. (일치 + 유사 문장)"
+        "문장(TF-IDF) · 페이지 텍스트 · 이미지(pHash)를 비교합니다. "
+        "이미지는 PDF/DOCX(및 Memory 원본 파일)에서 추출합니다."
     )
     mode = st.radio(
         "비교 방식",
@@ -1859,11 +1859,25 @@ def _similarity_panel() -> None:
         horizontal=True,
         key="sim_mode",
     )
-    c_th, c_top = st.columns(2)
-    threshold = c_th.slider("유사도 임계값", 0.5, 0.95, 0.72, 0.01, key="sim_threshold")
+    c1, c2, c3 = st.columns(3)
+    threshold = c1.slider("문장 유사도 임계값", 0.5, 0.95, 0.72, 0.01, key="sim_threshold")
+    page_threshold = c2.slider("페이지 유사도 임계값", 0.5, 0.95, 0.72, 0.01, key="sim_page_threshold")
     top_n = int(
-        c_top.number_input("상위 결과 수", min_value=5, max_value=50, value=15, step=5, key="sim_top_n")
+        c3.number_input("표에 표시할 상위 수", min_value=5, max_value=100, value=30, step=5, key="sim_top_n")
     )
+    enable_images = st.checkbox("이미지 유사도 포함", value=True, key="sim_enable_images")
+    phash_distance = 8
+    if enable_images:
+        phash_distance = int(
+            st.slider("이미지 pHash 거리 상한", 0, 16, 8, 1, key="sim_phash")
+        )
+
+    run_kwargs = {
+        "threshold": threshold,
+        "page_threshold": page_threshold,
+        "enable_images": enable_images,
+        "phash_distance": phash_distance,
+    }
 
     if mode == "업로드 ↔ Memory":
         project_meta = {
@@ -1895,13 +1909,13 @@ def _similarity_panel() -> None:
             key="sim_upload_kb",
         )
         if st.button("유사도 실행", type="primary", key="sim_run_kb", disabled=not upload):
-            with st.spinner("Memory와 비교 중…"):
+            with st.spinner("Memory와 문장·페이지·이미지 비교 중…"):
                 result = compare_upload_vs_kb(
                     upload.getvalue(),
                     upload.name,
                     repo=repo,
-                    threshold=threshold,
                     project_id=(project_filter or "").strip() or None,
+                    **run_kwargs,
                 )
             st.session_state["sim_last_result"] = result
 
@@ -1914,9 +1928,9 @@ def _similarity_panel() -> None:
             f"{d.get('project_id') or '—'} · {d.get('title') or d['filename']}": d["id"]
             for d in docs
         }
-        c1, c2 = st.columns(2)
-        a = c1.selectbox("문서 A", list(labels.keys()), key="sim_doc_a")
-        b = c2.selectbox("문서 B", list(labels.keys()), key="sim_doc_b")
+        ca, cb = st.columns(2)
+        a = ca.selectbox("문서 A", list(labels.keys()), key="sim_doc_a")
+        b = cb.selectbox("문서 B", list(labels.keys()), key="sim_doc_b")
         if st.button("유사도 실행", type="primary", key="sim_run_pair"):
             if labels[a] == labels[b]:
                 st.warning("서로 다른 문서를 선택하세요.")
@@ -1926,7 +1940,7 @@ def _similarity_panel() -> None:
                         labels[a],
                         labels[b],
                         repo=repo,
-                        threshold=threshold,
+                        **run_kwargs,
                     )
                 st.session_state["sim_last_result"] = result
 
@@ -1946,7 +1960,7 @@ def _similarity_panel() -> None:
             with st.spinner("업로드 문서 비교 중…"):
                 result = compare_uploads(
                     [(f.getvalue(), f.name) for f in uploads],
-                    threshold=threshold,
+                    **run_kwargs,
                 )
             st.session_state["sim_last_result"] = result
 
@@ -1964,16 +1978,24 @@ def _sim_verdict_label(verdict: str) -> str:
     }.get(str(verdict or ""), str(verdict or ""))
 
 
-def _render_similarity_result(result: dict, *, top_n: int = 15) -> None:
+def _render_similarity_result(result: dict, *, top_n: int = 30) -> None:
     if not result.get("ok"):
         st.error(result.get("error") or "유사도 비교에 실패했습니다.")
         return
+
     stats = result.get("stats") or {}
+    sent_stats = stats.get("sentence") or stats
+    page_stats = stats.get("page") or {}
+    img_stats = stats.get("image") or {}
+
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("유사 쌍", int(stats.get("pair_count") or 0))
-    m2.metric("일치", int(stats.get("exact") or 0))
-    m3.metric("높음", int(stats.get("high") or 0))
-    m4.metric("최고점", f"{float(stats.get('max_score') or 0):.3f}")
+    m1.metric("유사 문장 쌍", int(sent_stats.get("pair_count") or 0))
+    m2.metric("유사 페이지 쌍", int(page_stats.get("pair_count") or 0))
+    m3.metric("유사 이미지 쌍", int(img_stats.get("pair_count") or 0))
+    m4.metric(
+        "문장 최고점",
+        f"{float(sent_stats.get('max_score') or 0):.3f}",
+    )
 
     meta = []
     if result.get("query_file"):
@@ -1981,58 +2003,137 @@ def _render_similarity_result(result: dict, *, top_n: int = 15) -> None:
     if result.get("file_a") and result.get("file_b"):
         meta.append(f"`{result['file_a']}` ↔ `{result['file_b']}`")
     if result.get("query_units") is not None:
-        meta.append(f"질의 문장 {result['query_units']}개")
-    if result.get("kb_units") is not None:
-        meta.append(f"비교 대상 문장 {result['kb_units']}개")
+        meta.append(f"문장 {result['query_units']}↔{result.get('kb_units', '—')}")
+    if result.get("page_units_query") is not None:
+        meta.append(
+            f"페이지 {result.get('page_units_query')}↔{result.get('page_units_kb', '—')}"
+        )
+    elif result.get("page_units") is not None:
+        meta.append(f"페이지 단위 {result['page_units']}개")
+    if result.get("image_units_query") is not None:
+        meta.append(
+            f"이미지 {result.get('image_units_query')}↔{result.get('image_units_kb', '—')}"
+        )
+    elif result.get("image_units") is not None:
+        meta.append(f"이미지 {result['image_units']}개")
     if meta:
         st.caption(" · ".join(meta))
 
-    pairs = list(result.get("pairs") or [])
-    if not pairs:
-        st.info("임계값 이상의 유사 문장 쌍이 없습니다.")
-        return
+    sentence_pairs = list(result.get("sentence_pairs") or result.get("pairs") or [])
+    page_pairs = list(result.get("page_pairs") or [])
+    image_pairs = list(result.get("image_pairs") or [])
+    n = max(1, int(top_n))
 
-    show = pairs[: max(1, int(top_n))]
-    st.markdown(f"#### 상위 {len(show)}개 유사 문장")
-    for i, p in enumerate(show, start=1):
-        verdict = _sim_verdict_label(p.get("verdict"))
-        score = float(p.get("score") or 0)
-        match_type = "일치" if p.get("match_type") == "exact" else "유사"
-        fa = escape(str(p.get("file_a") or ""))
-        fb = escape(str(p.get("file_b") or ""))
-        la = escape(str(p.get("location_a") or ""))
-        lb = escape(str(p.get("location_b") or ""))
-        ta = escape(str(p.get("text_a") or "")[:320])
-        tb = escape(str(p.get("text_b") or "")[:320])
-        st.markdown(
-            f'<div class="rm-card">'
-            f"<strong>[{i}] {escape(verdict)} · {score:.3f} · {escape(match_type)}</strong>"
-            f'<div class="rm-meta">{fa} / {la}</div>'
-            f'<div class="rm-snip">{ta}</div>'
-            f'<div class="rm-meta" style="margin-top:8px;">{fb} / {lb}</div>'
-            f'<div class="rm-snip">{tb}</div>'
-            f"</div>",
-            unsafe_allow_html=True,
-        )
+    tab_s, tab_i, tab_p = st.tabs(["유사 문장", "유사 이미지", "유사 페이지"])
 
-    with st.expander("표로 보기 (전체 결과)"):
-        st.dataframe(
-            [
-                {
-                    "점수": round(float(p.get("score") or 0), 3),
-                    "판정": _sim_verdict_label(p.get("verdict")),
-                    "유형": "일치" if p.get("match_type") == "exact" else "유사",
-                    "파일 A": p.get("file_a"),
-                    "위치 A": p.get("location_a"),
-                    "문장 A": str(p.get("text_a") or "")[:180],
-                    "파일 B": p.get("file_b"),
-                    "위치 B": p.get("location_b"),
-                    "문장 B": str(p.get("text_b") or "")[:180],
-                }
-                for p in pairs
-            ],
-            use_container_width=True,
-        )
+    with tab_s:
+        if not sentence_pairs:
+            st.info("임계값 이상의 유사 문장 쌍이 없습니다.")
+        else:
+            show = sentence_pairs[:n]
+            st.caption(f"상위 {len(show)} / 전체 {len(sentence_pairs)}개")
+            st.dataframe(
+                [
+                    {
+                        "점수": round(float(p.get("score") or 0), 3),
+                        "판정": _sim_verdict_label(p.get("verdict")),
+                        "유형": "일치" if p.get("match_type") == "exact" else "유사",
+                        "파일 A": p.get("file_a"),
+                        "위치 A": p.get("location_a"),
+                        "문장 A": str(p.get("text_a") or "")[:220],
+                        "파일 B": p.get("file_b"),
+                        "위치 B": p.get("location_b"),
+                        "문장 B": str(p.get("text_b") or "")[:220],
+                    }
+                    for p in show
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            with st.expander("문장 상세 (나란히)"):
+                for i, p in enumerate(show[:20], start=1):
+                    st.markdown(
+                        f"**[{i}] {_sim_verdict_label(p.get('verdict'))} · "
+                        f"{float(p.get('score') or 0):.3f}**  \n"
+                        f"`{p.get('file_a')}` / {p.get('location_a')}  \n"
+                        f"> {str(p.get('text_a') or '')[:400]}  \n"
+                        f"`{p.get('file_b')}` / {p.get('location_b')}  \n"
+                        f"> {str(p.get('text_b') or '')[:400]}"
+                    )
+
+    with tab_i:
+        if not image_pairs:
+            st.info(
+                "유사 이미지 쌍이 없습니다. PDF/DOCX 원본에서 추출된 이미지가 있거나, "
+                "Memory 문서의 stored_path 원본이 있어야 비교됩니다."
+            )
+        else:
+            show = image_pairs[:n]
+            st.caption(f"상위 {len(show)} / 전체 {len(image_pairs)}개")
+            st.dataframe(
+                [
+                    {
+                        "pHash거리": p.get("phash_distance"),
+                        "판정": _sim_verdict_label(p.get("verdict")),
+                        "파일 A": p.get("file_a"),
+                        "위치 A": p.get("location_a"),
+                        "크기 A": f"{p.get('width_a')}×{p.get('height_a')}",
+                        "파일 B": p.get("file_b"),
+                        "위치 B": p.get("location_b"),
+                        "크기 B": f"{p.get('width_b')}×{p.get('height_b')}",
+                    }
+                    for p in show
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            with st.expander("이미지 미리보기"):
+                for i, p in enumerate(show[:12], start=1):
+                    st.markdown(
+                        f"**[{i}] {_sim_verdict_label(p.get('verdict'))} · "
+                        f"거리 {p.get('phash_distance')}** — "
+                        f"`{p.get('file_a')}` / {p.get('location_a')} ↔ "
+                        f"`{p.get('file_b')}` / {p.get('location_b')}"
+                    )
+                    ca, cb = st.columns(2)
+                    if p.get("image_bytes_a"):
+                        ca.image(p["image_bytes_a"], use_container_width=True)
+                    if p.get("image_bytes_b"):
+                        cb.image(p["image_bytes_b"], use_container_width=True)
+
+    with tab_p:
+        if not page_pairs:
+            st.info("임계값 이상의 유사 페이지 쌍이 없습니다.")
+        else:
+            show = page_pairs[:n]
+            st.caption(f"상위 {len(show)} / 전체 {len(page_pairs)}개")
+            st.dataframe(
+                [
+                    {
+                        "점수": round(float(p.get("score") or 0), 3),
+                        "판정": _sim_verdict_label(p.get("verdict")),
+                        "파일 A": p.get("file_a"),
+                        "페이지 A": p.get("page_a") if p.get("page_a") is not None else p.get("location_a"),
+                        "미리보기 A": str(p.get("text_a") or "")[:180],
+                        "파일 B": p.get("file_b"),
+                        "페이지 B": p.get("page_b") if p.get("page_b") is not None else p.get("location_b"),
+                        "미리보기 B": str(p.get("text_b") or "")[:180],
+                    }
+                    for p in show
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            with st.expander("페이지 텍스트 상세"):
+                for i, p in enumerate(show[:15], start=1):
+                    st.markdown(
+                        f"**[{i}] {_sim_verdict_label(p.get('verdict'))} · "
+                        f"{float(p.get('score') or 0):.3f}**  \n"
+                        f"`{p.get('file_a')}` / {p.get('location_a')}  \n"
+                        f"> {str(p.get('text_a') or '')[:500]}  \n"
+                        f"`{p.get('file_b')}` / {p.get('location_b')}  \n"
+                        f"> {str(p.get('text_b') or '')[:500]}"
+                    )
 
 
 def _proposal_panel() -> None:
