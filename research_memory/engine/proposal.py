@@ -76,8 +76,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
             "기술주권", "온프레미스", "AIDC",
         ],
         "instruction": (
-            "참여 필요성만 작성하세요. RFP 목적·산업 배경과 연구문서의 문제인식을 연결하고, "
-            "왜 우리 센터가 필요한지 2~4문단으로 구체적으로 쓰세요."
+            "참여 필요성만 작성하세요. 2~3개 문단의 제안서 본문처럼 자연스럽게 서술하세요. "
+            "근거 문장을 나열하거나 복사하지 말고, RFP 목적과 기존 연구 문제인식을 녹여 쓰세요."
         ),
     },
     "center_role": {
@@ -91,10 +91,9 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
             "역량", "모듈", "책임",
         ],
         "instruction": (
-            "담당 역할만 작성하세요. 기존 연구·보고서·제안서·연구노트 근거로 "
-            "구체적 역할 범위와 경계를 서술하세요. "
-            "'총괄'은 RFP/근거에 명시된 경우만 쓰고, 기본은 주관·담당·역할 분담으로 표현하세요. "
-            "다른 참여사 전체 역할은 쓰지 마세요."
+            "담당 역할만 작성하세요. 한두 문단으로 역할 범위·경계를 제안서 문체로 서술하세요. "
+            "근거 목록을 이어 붙이지 마세요. "
+            "'총괄'은 RFP/근거에 명시된 경우만 쓰고, 기본은 주관·담당·역할 분담으로 표현하세요."
         ),
     },
     "work_details": {
@@ -108,8 +107,9 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
             "아키텍처", "표준", "제안",
         ],
         "instruction": (
-            "세부 수행내용만 작성하세요. RFP 요구사항과 유사 기술 근거를 매핑해 "
-            "과업 단위(1,2,3…)로 구체적 수행방법을 쓰세요. 일반론·구호성 문장은 피하세요."
+            "세부 수행내용만 작성하세요. 1., 2., 3. 과업 단위로 나누되, "
+            "각 항목은 한 문장 인용이 아니라 2~4문장의 수행 방법 서술이어야 합니다. "
+            "근거 문서명·location을 본문에 나열하지 마세요."
         ),
     },
     "yearly_plan": {
@@ -135,8 +135,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
             "deliverable",
         ],
         "instruction": (
-            "예상 산출물만 작성하세요. RFP 제출/산출 요구와 유사 제안서·보고서의 산출물 유형을 "
-            "대응시켜 목록으로 쓰세요. 각 항목에 가능하면 근거 파일명을 붙이세요."
+            "예상 산출물만 작성하세요. '- 산출물명: 한 줄 설명' 목록 형태로, "
+            "제안서에 넣을 산출물 목록처럼 짧게 쓰세요. 출처 태그나 file= 표기는 넣지 마세요."
         ),
     },
     "kpi_draft": {
@@ -187,9 +187,9 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
             "인건비", "집행", "증빙",
         ],
         "instruction": (
-            "운영요령·참고규정 준수 포인트만 작성하세요. 참고규정 근거만 사용하고, "
-            "연구비·장비/현물·성과관리·제재 관련 주의점을 3~6문장으로 정리하세요. "
-            "기술 수행내용이나 센터 역할 서술은 넣지 마세요."
+            "운영요령·참고규정 준수 포인트만 작성하세요. 3~5문장 또는 짧은 불릿으로, "
+            "계상·증빙·제재 등 사전 확인 사항을 제안서 톤으로 정리하세요. "
+            "준수 완료라고 단정하지 말고, 출처 태그는 쓰지 마세요."
         ),
     },
     "open_questions": {
@@ -200,8 +200,8 @@ SECTION_SPECS: dict[str, dict[str, Any]] = {
         "rfp_fields": ["notes", "consortium_conditions", "budget", "kpi"],
         "keywords": ["확인", "미정", "협의", "분담", "예산", "범위"],
         "instruction": (
-            "추가 확인이 필요한 사항만 작성하세요. 근거 부족·역할 경계·수치 미확정 항목을 "
-            "체크리스트 형태로 짧게 나열하세요."
+            "추가 확인이 필요한 사항만 짧은 체크리스트(- 항목)로 나열하세요. "
+            "[확인 필요] 태그는 쓰지 말고, 문장 자체로 확인 사항을 적으세요."
         ),
     },
 }
@@ -398,29 +398,31 @@ def generate_section_draft(
 """
 
     if not llm_available():
-        return _heuristic_section(
-            section_key,
-            rfp,
-            selected_role,
-            research_evidence,
-            reference_evidence,
+        return _clean_draft_prose(
+            _heuristic_section(
+                section_key,
+                rfp,
+                selected_role,
+                research_evidence,
+                reference_evidence,
+            )
         )
 
-    prompt = f"""당신은 공공 R&D 제안서 초안 작성 보조 도구입니다.
+    prompt = f"""당신은 공공 R&D 제안서 작성자입니다.
 지금은 **하나의 섹션만** 작성합니다. JSON 객체만 출력하세요. 키는 정확히 "{section_key}" 하나 (값은 문자열).
 
 섹션: {label} ({section_key})
 지시: {instruction}
 {review_block}
-문체·표기 규칙:
-- 제출용에 가까운 일반 제안서 문체로 쓰세요. 내부 메모/디버그 말투 금지.
-- 문장 앞에 [연구문서], [참고규정], [AI 제안], [확인 필요] 같은 태그를 붙이지 마세요.
-- 근거가 있는 내용은 필요 시 문장 끝에 (짧은 문서명)만 붙이세요. file=, score=, location= 표기 금지.
-- 근거가 없으면 새 사실을 만들지 말고 '확인 필요'로만 표시하세요.
-- '총괄'은 RFP나 근거에 명시된 경우만 사용하고, 기본은 주관·담당·역할 분담으로 쓰세요.
-- 아래 제공된 근거만 사용하세요. 다른 섹션 내용을 섞지 마세요.
-- 수치·예산·기업명은 근거에 없으면 확인 필요.
-- 과거 문장 복붙 금지. 이번 RFP와 역할에 맞게 작성.
+문체 (매우 중요):
+- 제안서 본문처럼 읽히게 쓰세요. 근거 카드/로그/리스트업 느낌이 나면 안 됩니다.
+- 근거 문장을 그대로 이어 붙이거나 요약 나열하지 말고, 내용을 재구성해 서술하세요.
+- [연구문서], [참고규정], [AI 제안], [확인 필요] 태그를 절대 쓰지 마세요.
+- file=, location=, score=, section 1 · part N 같은 기계적 출처 표기를 본문에 넣지 마세요.
+- 출처가 꼭 필요하면 문단 끝에 (짧은문서명) 한 번만. 매 문장마다 붙이지 마세요.
+- 근거가 없으면 새 사실을 만들지 말고 '확인 필요'라고만 적으세요.
+- '총괄'은 RFP/근거에 명시된 경우만. 기본은 주관·담당·역할 분담.
+- 아래 근거는 참고용 내부 자료입니다. 본문에 근거 형식을 복사하지 마세요.
 
 [RFP 분석]
 {json.dumps(rfp, ensure_ascii=False, indent=2)}
@@ -428,22 +430,24 @@ def generate_section_draft(
 [역할]
 {json.dumps(selected_role, ensure_ascii=False, indent=2)}
 
-[이 섹션용 연구 근거]
+[내부 참고 — 연구 근거]
 {research_text}
 
-[이 섹션용 규정 근거]
+[내부 참고 — 규정 근거]
 {reference_text}
 """
     try:
         raw = generate_text(prompt)
-        return _parse_section_text(raw, section_key)
+        return _clean_draft_prose(_parse_section_text(raw, section_key))
     except LLMConnectionError:
-        return _heuristic_section(
-            section_key,
-            rfp,
-            selected_role,
-            research_evidence,
-            reference_evidence,
+        return _clean_draft_prose(
+            _heuristic_section(
+                section_key,
+                rfp,
+                selected_role,
+                research_evidence,
+                reference_evidence,
+            )
         )
 
 
@@ -960,7 +964,7 @@ def build_markdown(
     ]
     for key, label in DRAFT_LABELS.items():
         lines.append(f"### {label}")
-        lines.append(str(draft.get(key, NOT_FOUND)))
+        lines.append(clean_draft_prose(str(draft.get(key, NOT_FOUND))))
         lines.append("")
 
     if research or reference:
@@ -992,13 +996,66 @@ def export_docx_bytes(
     document.add_paragraph(f"역할: {selected_role.get('role', NOT_FOUND)}")
     for key, label in DRAFT_LABELS.items():
         document.add_heading(label, level=1)
-        document.add_paragraph(str(draft.get(key, NOT_FOUND)))
+        document.add_paragraph(clean_draft_prose(str(draft.get(key, NOT_FOUND))))
     buf = BytesIO()
     document.save(buf)
     return buf.getvalue()
 
 
 # --- helpers ---
+
+def clean_draft_prose(text: str) -> str:
+    """Strip leftover citation tags / file= noise so sections read like proposal prose."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return cleaned
+    # Bracket tags
+    cleaned = re.sub(
+        r"\[(?:연구문서|참고규정|AI 제안|확인 필요)\]\s*",
+        "",
+        cleaned,
+    )
+    # file=name | location=... ]  (including mismatched closing brackets)
+    cleaned = re.sub(
+        r"\bfile\s*=\s*([^\|\]]+?)(?:\s*\|\s*location\s*=\s*[^\]]*)?\]?",
+        r"\1",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\s*\|\s*location\s*=\s*[^\]\|\n)]+",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\blocation\s*=\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    # Parenthetical dumps like (longname.hwpx | section 1 · part 3)
+    cleaned = re.sub(
+        r"\(([^()]+\.(?:hwpx|docx|pdf|xlsx|xls|txt|md))\s*\|\s*[^)]+\)",
+        r"(\1)",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    # Dangling "filename.ext]" leftovers
+    cleaned = re.sub(
+        r"(\S+\.(?:hwpx|docx|pdf|xlsx|xls|txt|md))\s*\]",
+        r"\1",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _clean_draft_prose(text: str) -> str:
+    return clean_draft_prose(text)
+
 
 def _research_queries(rfp: dict[str, Any]) -> list[str]:
     queries: list[str] = []

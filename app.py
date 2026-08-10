@@ -44,6 +44,7 @@ from research_memory.pipeline.ingest import ingest_bytes
 from research_memory.engine.proposal import (
     analyze_rfp,
     build_markdown,
+    clean_draft_prose,
     export_docx_bytes,
     gather_kb_evidence_split,
     generate_draft,
@@ -2161,7 +2162,7 @@ def _proposal_panel() -> None:
             ("open_questions", "확인 필요"),
         ):
             st.markdown(f"**{label}**")
-            st.write(draft.get(key, ""))
+            st.write(clean_draft_prose(str(draft.get(key, "") or "")))
             sec_ev = (draft.get("section_evidence") or {}).get(key) or {}
             r_n = len(sec_ev.get("research") or [])
             f_n = len(sec_ev.get("reference") or [])
