@@ -95,9 +95,9 @@ MAIN_NAV = [
     (PAGE_CHAT, "💬 채팅"),
     (PAGE_RESEARCH_NOTE, "📝 연구노트"),
     (PAGE_PROPOSAL, "🖊️ 제안서"),
+    (PAGE_SIMILARITY, "🔍 유사도 검토"),
 ]
 FUTURE_NAV = [
-    (PAGE_SIMILARITY, "🔍 유사도 검토"),
     (PAGE_MILESTONE, "Milestone Intelligence"),
 ]
 
@@ -298,9 +298,10 @@ def main() -> None:
         )
         _proposal_panel()
     elif page == PAGE_SIMILARITY:
-        _roadmap_banner(
-            "유사도 검토",
-            "새 초안·문서가 Memory(또는 다른 문서)와 얼마나 겹치는지 문장 단위로 확인합니다.",
+        st.title("유사도 검토")
+        st.caption(
+            "새 초안·문서가 Memory(또는 다른 문서)와 얼마나 겹치는지 "
+            "문장·페이지·이미지로 확인합니다."
         )
         _similarity_panel()
     elif page == PAGE_MILESTONE:
