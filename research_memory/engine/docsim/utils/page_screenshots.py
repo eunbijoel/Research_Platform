@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import re
-import zipfile
 from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
@@ -220,15 +219,6 @@ def render_page_png(
         doc.close()
 
 
-def collect_matched_page_pairs(sentence_pairs: list[dict]) -> list[tuple[str, int, str, int]]:
-    """
-    유사 문장 쌍에서 (파일A, 페이지A, 파일B, 페이지B)를 중복 없이 수집.
-    확인이 쉽도록 A/B 페이지가 모두 있는 쌍만 포함한다.
-    """
-    details = collect_matched_page_pair_details(sentence_pairs)
-    return [(d["file_a"], d["page_a"], d["file_b"], d["page_b"]) for d in details]
-
-
 def collect_matched_page_pair_details(sentence_pairs: list[dict]) -> list[dict]:
     """
     페이지 쌍별로 하이라이트할 문장과, 묶인 근거(유사 문장 쌍)를 모아 반환.
@@ -357,10 +347,9 @@ def build_matched_page_screenshots(
     유사 문장 페이지 쌍을 PNG로 렌더 (매칭 문장 노란색 하이라이트).
 
     각 쌍에 대해 A/B 개별 PNG와, 나란히 합친 AB PNG를 만든다.
-    ZIP 다운로드는 AB(합본)만 사용한다.
 
-    page_pairs: collect_matched_page_pairs 결과 또는
-                collect_matched_page_pair_details 결과.
+    page_pairs: collect_matched_page_pair_details 결과
+                (또는 (file_a, page_a, file_b, page_b) tuple 목록).
     """
     # tuple 목록이면 detail 없이 하이라이트 없이 렌더 (하위호환)
     if page_pairs and isinstance(page_pairs[0], tuple):
@@ -420,7 +409,7 @@ def build_matched_page_screenshots(
             sides[side] = item
             results.append(item)
 
-        # 나란히 합본 (다운로드용)
+        # 나란히 합본
         if "A" in sides and "B" in sides:
             combined = stitch_side_by_side(
                 sides["A"]["png_bytes"],
@@ -455,22 +444,3 @@ def build_matched_page_screenshots(
                     }
                 )
     return results
-
-
-def screenshots_to_zip(screenshots: list[dict], *, combined_only: bool = True) -> bytes:
-    """스크린샷 목록을 ZIP으로 묶는다. 기본은 A|B 합본(side=AB)만 넣는다."""
-    items = list(screenshots or [])
-    if combined_only:
-        combined = [s for s in items if s.get("side") == "AB"]
-        if combined:
-            items = combined
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        used: set[str] = set()
-        for item in items:
-            name = item["filename"]
-            if name in used:
-                continue
-            used.add(name)
-            zf.writestr(name, item["png_bytes"])
-    return buf.getvalue()

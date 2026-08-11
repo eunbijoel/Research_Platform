@@ -124,17 +124,6 @@ def compute_similarity_distribution(
     return pd.DataFrame(rows)
 
 
-# 하위 호환용 (이전 0.1대 라벨 — UI에서는 더 이상 사용하지 않음)
-SIMILARITY_BIN_ORDER = [
-    "1.0 (동일)",
-    "0.9대",
-    "0.8대",
-    "0.7대",
-    "0.6대",
-    "0.6 미만",
-]
-
-
 def compute_file_pair_matrix(
     sentence_pairs: list[dict],
     file_names: Iterable[str] | None = None,
@@ -174,14 +163,3 @@ def compute_file_pair_matrix(
 
     matrix.index.name = None
     return matrix
-
-
-def collect_matched_page_keys(sentence_pairs: list[dict]) -> list[tuple[str, int]]:
-    """유사 문장 쌍에서 (파일명, 페이지번호) 목록을 중복 없이 수집."""
-    keys: set[tuple[str, int]] = set()
-    for p in sentence_pairs:
-        for file_key, loc_key in (("file_a", "location_a"), ("file_b", "location_b")):
-            page = parse_page_number(p.get(loc_key, ""))
-            if page is not None:
-                keys.add((p[file_key], page))
-    return sorted(keys, key=lambda x: (x[0], x[1]))

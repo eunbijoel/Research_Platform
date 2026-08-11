@@ -299,41 +299,6 @@ def pdf_pages_preview_html(
     )
 
 
-def pdf_iframe_html(path: Path, *, height: int = 720) -> tuple[str, str]:
-    """Legacy data-URI iframe embed (often blocked by Edge). Prefer pdf_page_pngs."""
-    try:
-        data = path.read_bytes()
-    except OSError as exc:
-        return "", f"PDF를 읽을 수 없습니다: {exc}"
-    if len(data) > 25 * 1024 * 1024:
-        return "", "PDF가 너무 큽니다(25MB+). 원본 다운로드로 확인해 주세요."
-    b64 = base64.b64encode(data).decode("ascii")
-    # Blob URL avoids Edge's data:application/pdf iframe block in many cases.
-    frame = f"""
-<div id="rm-pdf-wrap" style="width:100%;height:{height}px;border:1px solid #ddd;border-radius:8px;overflow:hidden;">
-  <iframe id="rm-pdf" width="100%" height="100%" style="border:0;" title="PDF preview"></iframe>
-</div>
-<script>
-(function () {{
-  try {{
-    var b64 = "{b64}";
-    var bin = atob(b64);
-    var bytes = new Uint8Array(bin.length);
-    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    var blob = new Blob([bytes], {{ type: "application/pdf" }});
-    var url = URL.createObjectURL(blob);
-    var frame = document.getElementById("rm-pdf");
-    if (frame) frame.src = url;
-  }} catch (e) {{
-    var wrap = document.getElementById("rm-pdf-wrap");
-    if (wrap) wrap.innerHTML = "<p style='padding:16px;color:#b00020;'>브라우저 PDF 뷰어를 열 수 없습니다.</p>";
-  }}
-}})();
-</script>
-"""
-    return frame, ""
-
-
 def text_file_preview(path: Path, *, max_chars: int = 50000) -> tuple[str, str]:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
