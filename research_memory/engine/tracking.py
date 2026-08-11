@@ -141,53 +141,6 @@ def gap_report(
     }
 
 
-def seed_demo_project(
-    *,
-    repo: KnowledgeRepository | None = None,
-    project_id: str = "DEMO-2026",
-) -> dict[str, Any]:
-    """Create a sample project + milestones aligned with demo corpus."""
-    repo = repo or KnowledgeRepository()
-    repo.upsert_project(
-        project_id=project_id,
-        title="Research Memory Platform 데모 과제",
-        owner="조은비",
-        start_date="2026-01-01",
-        end_date="2026-12-31",
-        status="active",
-        notes="Phase 4 Tracking demo",
-    )
-    existing = repo.list_milestones(project_id)
-    if existing:
-        return {
-            "ok": True,
-            "project_id": project_id,
-            "milestones": len(existing),
-            "skipped": True,
-        }
-
-    specs = [
-        ("센터 연구 개요 문서", "2026-03-01", "proposal", "Research Memory, 핵심 원칙"),
-        ("제안서 발췌 / 역할 정의", "2026-04-15", "proposal", "센터 역할, Pipeline, Knowledge Base"),
-        ("Phase 1 범위 회의록", "2026-07-15", "meeting", "Phase 1, Chat, 인용"),
-        ("유사도 리포트", "2026-08-30", "other", "Similarity, 중복"),
-        ("제안 초안 산출물", "2026-09-30", "proposal", "RFP, 초안"),
-    ]
-    ids = []
-    for title, due, dtype, keywords in specs:
-        ids.append(
-            repo.add_milestone(
-                project_id=project_id,
-                title=title,
-                due_date=due,
-                deliverable_type=dtype,
-                expected_keywords=keywords,
-                status="planned",
-            )
-        )
-    return {"ok": True, "project_id": project_id, "milestones": len(ids), "ids": ids}
-
-
 def auto_link_milestones(
     project_id: str,
     *,

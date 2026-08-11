@@ -4,16 +4,14 @@ import argparse
 import json
 from pathlib import Path
 
-from research_memory.config import PROJECT_ROOT, ensure_data_dirs
+from research_memory.config import ensure_data_dirs
 from research_memory.engine.chat import answer_question
 from research_memory.engine.proposal import run_proposal_pipeline
 from research_memory.engine.similarity import compare_kb_documents, compare_upload_vs_kb
 from research_memory.engine.tracking import (
     auto_link_milestones,
     gap_report,
-    seed_demo_project,
 )
-from research_memory.eval_retrieval import evaluate_retrieval
 from research_memory.kb.repository import KnowledgeRepository
 from research_memory.pipeline.ingest import ingest_file
 
@@ -51,47 +49,6 @@ def cmd_list(_: argparse.Namespace) -> None:
         print(
             f"{d['id'][:8]}  {d['status']:6}  chunks={d.get('chunk_count', 0):3}  {d['filename']}"
         )
-
-
-def cmd_seed_demo(_: argparse.Namespace) -> None:
-    ensure_data_dirs()
-    demo_dir = PROJECT_ROOT / "demo"
-    demo_dir.mkdir(exist_ok=True)
-
-    project_by_file = {
-        "center_overview.md": "DEMO-2026",
-        "proposal_excerpt.md": "DEMO-2026",
-        "meeting_note.md": "DEMO-2026",
-        "ald_process_note.md": "ALD-2024",
-        "ald_annual_report.md": "ALD-2024",
-        "meeting_ald_hwp.md": "ALD-2024",
-        "hwp_analyst_design.md": "HWP-ANALYST-2025",
-        "hwp_analyst_trial.md": "HWP-ANALYST-2025",
-        "kmx_concept_note.md": "KMX-2025",
-        "max_integration_survey.md": "MAX-2026",
-        "rm_proposal_2026.md": "RM-PROPOSAL-2026",
-        "proposal_intel_note.md": "RM-PROPOSAL-2026",
-    }
-
-    # Fallback inline bodies for the original 3 if files missing
-    fallback = {
-        "center_overview.md": """# KETI 소프트웨어센터 연구 개요 (데모)\n\n과제명: 산업 데이터 스페이스 연계형 Research Memory\n""",
-        "proposal_excerpt.md": """# 제안서 발췌 (데모)\n\n과제명: Manufacturing-X 연계 문서 지능\n""",
-        "meeting_note.md": """# 회의록 (데모)\n\nPhase 1은 Chat(인용 강제)까지\n""",
-    }
-
-    repo = KnowledgeRepository()
-    for name, project_id in project_by_file.items():
-        path = demo_dir / name
-        if not path.exists():
-            if name in fallback:
-                path.write_text(fallback[name], encoding="utf-8")
-            else:
-                print(json.dumps({"ok": False, "file": name, "error": "missing"}, ensure_ascii=False))
-                continue
-        result = ingest_file(path, repo=repo, project_id=project_id)
-        result["project_id"] = project_id
-        print(json.dumps(result, ensure_ascii=False))
 
 
 def cmd_similarity(args: argparse.Namespace) -> None:
@@ -146,9 +103,6 @@ def cmd_proposal(args: argparse.Namespace) -> None:
 
 def cmd_milestone(args: argparse.Namespace) -> None:
     repo = KnowledgeRepository()
-    if args.seed:
-        print(json.dumps(seed_demo_project(repo=repo, project_id=args.project), ensure_ascii=False))
-        return
     if args.autolink:
         print(json.dumps(auto_link_milestones(args.project, repo=repo), ensure_ascii=False))
         return
@@ -167,28 +121,6 @@ def cmd_rebuild_index(_: argparse.Namespace) -> None:
     print(json.dumps({"chunks": n, **repo.retrieval_status()}, ensure_ascii=False))
 
 
-def cmd_eval(args: argparse.Namespace) -> None:
-    repo = KnowledgeRepository()
-    if args.rebuild:
-        repo.rebuild_index()
-    result = evaluate_retrieval(repo=repo, top_k=args.top_k)
-    summary = {
-        "n": result["n"],
-        "top_k": result["top_k"],
-        "recall_at_k": round(result["recall_at_k"], 3),
-        "mrr": round(result["mrr"], 3),
-        "hits": result["hits"],
-        "index": result["index"],
-    }
-    print(json.dumps(summary, ensure_ascii=False))
-    for row in result["rows"]:
-        mark = "OK" if row["hit"] else "MISS"
-        print(
-            f"[{mark}] {row['id']} backend={row['backend']} rank={row['rank']} "
-            f"got={row['retrieved_files'][:3]}"
-        )
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(prog="research-memory")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -204,9 +136,6 @@ def main() -> None:
 
     p_list = sub.add_parser("list", help="List KB documents")
     p_list.set_defaults(func=cmd_list)
-
-    p_seed = sub.add_parser("seed_demo", help="Create and ingest demo corpus")
-    p_seed.set_defaults(func=cmd_seed_demo)
 
     p_sim = sub.add_parser("similarity", help="Similarity: file vs KB or two KB docs")
     p_sim.add_argument("path", nargs="?", help="File to compare against KB")
@@ -225,17 +154,11 @@ def main() -> None:
 
     p_mile = sub.add_parser("milestone", help="Project milestone gap report")
     p_mile.add_argument("--project", default="DEMO-2026")
-    p_mile.add_argument("--seed", action="store_true", help="Seed demo project/milestones")
     p_mile.add_argument("--autolink", action="store_true", help="Persist matched links")
     p_mile.set_defaults(func=cmd_milestone)
 
     p_re = sub.add_parser("rebuild-index", help="Rebuild vector + TF-IDF retrieval indexes")
     p_re.set_defaults(func=cmd_rebuild_index)
-
-    p_eval = sub.add_parser("eval", help="Run retrieval evaluation on gold QA set")
-    p_eval.add_argument("--top-k", type=int, default=5)
-    p_eval.add_argument("--rebuild", action="store_true")
-    p_eval.set_defaults(func=cmd_eval)
 
     args = parser.parse_args()
     args.func(args)
