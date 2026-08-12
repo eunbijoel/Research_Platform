@@ -60,10 +60,20 @@ from research_memory.engine.similarity import (
     compare_upload_vs_kb,
     compare_uploads,
 )
-from research_memory.engine.tracking import (
-    auto_link_milestones,
-    gap_report,
-    project_timeline,
+from research_memory.engine.schedule import (
+    EVENT_TYPE_LABELS,
+    EVENT_TYPE_MARK,
+    EVENT_TYPES,
+    STATUS_LABELS,
+    STATUSES,
+    event_type_label,
+    items_by_date,
+    list_month_items,
+    month_grid,
+    normalize_event_type,
+    normalize_status,
+    shift_month,
+    status_label,
 )
 from research_memory.kb.repository import KnowledgeRepository
 from research_memory.schema import (
@@ -86,7 +96,7 @@ PAGE_LIBRARY = "Library"
 PAGE_CHAT = "Research Chat"
 PAGE_PROPOSAL = "Proposal Intelligence"
 PAGE_SIMILARITY = "Similarity Intelligence"
-PAGE_MILESTONE = "Milestone Intelligence"
+PAGE_SCHEDULE = "Project Schedule"
 PAGE_RESEARCH_NOTE = "Research Note"
 
 MAIN_NAV = [
@@ -98,7 +108,7 @@ MAIN_NAV = [
     (PAGE_SIMILARITY, "🔍 유사도 검토"),
 ]
 FUTURE_NAV = [
-    (PAGE_MILESTONE, "Milestone Intelligence"),
+    (PAGE_SCHEDULE, "📅 과제 일정"),
 ]
 
 
@@ -304,13 +314,12 @@ def main() -> None:
             "문장·페이지·이미지로 확인합니다."
         )
         _similarity_panel()
-    elif page == PAGE_MILESTONE:
+    elif page == PAGE_SCHEDULE:
         _roadmap_banner(
-            "Milestone Intelligence",
-            "Track planned deliverables against what is already stored in Memory. "
-            "Early access below.",
+            "과제 일정",
+            "과제별 회의·제출·작업·마일스톤을 월간 캘린더로 관리합니다.",
         )
-        _milestone_panel()
+        _schedule_panel()
     else:
         _home_page()
 
@@ -2596,117 +2605,273 @@ def _render_proposal_review(findings: list) -> None:
             st.markdown(f"**{section}**  \n✅ 문제없음  \n- {msg}")
 
 
-def _milestone_panel() -> None:
-    st.subheader("Project tracking")
-    st.caption(
-        "과제·마일스톤을 등록하고, Memory에 적재된 산출물과 대조해 갭/지연을 추적합니다."
-    )
+def _schedule_panel() -> None:
+    from datetime import date as date_cls
 
-    with st.expander("Create / update project", expanded=False):
-        pid = st.text_input("Project ID", key="mile_pid")
-        title = st.text_input("Title", key="mile_title")
-        owner = st.text_input("Owner", key="mile_owner")
+    st.subheader("월간 캘린더")
+    st.caption("과제에 연결된 일정만 등록합니다. (회의 / 제출 / 작업 / 마일스톤)")
+
+    with st.expander("과제 등록·수정", expanded=False):
+        pid = st.text_input("과제 ID", key="sched_pid")
+        title = st.text_input("과제명", key="sched_title")
+        owner = st.text_input("담당", key="sched_owner")
         c1, c2 = st.columns(2)
-        start = c1.text_input("Start (YYYY-MM-DD)", key="mile_start")
-        end = c2.text_input("End (YYYY-MM-DD)", key="mile_end")
-        if st.button("Save project", key="mile_save_project"):
-            repo.upsert_project(
-                project_id=pid.strip(),
-                title=title.strip() or pid.strip(),
-                owner=owner.strip(),
-                start_date=start.strip(),
-                end_date=end.strip(),
-            )
-            st.success(f"Saved project {pid}")
+        start = c1.text_input("시작 (YYYY-MM-DD)", key="sched_start")
+        end = c2.text_input("종료 (YYYY-MM-DD)", key="sched_end")
+        if st.button("과제 저장", key="sched_save_project"):
+            if not pid.strip():
+                st.warning("과제 ID를 입력하세요.")
+            else:
+                repo.upsert_project(
+                    project_id=pid.strip(),
+                    title=title.strip() or pid.strip(),
+                    owner=owner.strip(),
+                    start_date=start.strip(),
+                    end_date=end.strip(),
+                )
+                st.success(f"저장됨: {pid.strip()}")
+                st.rerun()
 
     projects = repo.list_projects()
     if not projects:
-        st.info("프로젝트가 없습니다. Create project를 먼저 하세요.")
+        st.info("등록된 과제가 없습니다. 위에서 과제를 먼저 만드세요.")
         return
 
-    labels = {
-        f"{p['project_id']} · {p.get('title')} (ms={p.get('milestone_count', 0)}, docs={p.get('document_count', 0)})": p[
-            "project_id"
-        ]
+    project_map = {p["project_id"]: p for p in projects}
+    project_options = ["(전체)"] + [
+        f"{p['project_id']} · {p.get('title') or ''} (일정 {p.get('schedule_count', 0)})"
         for p in projects
-    }
-    choice = st.selectbox("Project", list(labels.keys()), key="mile_project_select")
-    project_id = labels[choice]
+    ]
+    project_ids = [""] + [p["project_id"] for p in projects]
 
-    with st.expander("Add milestone"):
-        m_title = st.text_input("Milestone title", key="mile_new_title")
-        m_due = st.text_input("Due date (YYYY-MM-DD)", key="mile_new_due")
-        m_type = st.selectbox(
-            "Deliverable type",
-            ["proposal", "paper", "note", "meeting", "excel", "other"],
-            key="mile_new_type",
-        )
-        m_kw = st.text_input(
-            "Expected keywords (comma/space separated)",
-            key="mile_new_kw",
-            placeholder="Research Memory, Pipeline",
-        )
-        if st.button("Add milestone", key="mile_add") and m_title.strip():
-            mid = repo.add_milestone(
-                project_id=project_id,
-                title=m_title.strip(),
-                due_date=m_due.strip(),
-                deliverable_type=m_type,
-                expected_keywords=m_kw.strip(),
+    today = date_cls.today()
+    if "sched_year" not in st.session_state:
+        st.session_state.sched_year = today.year
+    if "sched_month" not in st.session_state:
+        st.session_state.sched_month = today.month
+
+    nav_l, nav_c, nav_r, filt1, filt2 = st.columns([1, 2, 1, 2, 2])
+    with nav_l:
+        if st.button("◀", key="sched_prev", use_container_width=True):
+            y, m = shift_month(
+                st.session_state.sched_year, st.session_state.sched_month, -1
             )
-            st.success(f"Added milestone {mid[:8]}")
+            st.session_state.sched_year, st.session_state.sched_month = y, m
+            st.rerun()
+    with nav_c:
+        st.markdown(
+            f"<h3 style='text-align:center;margin:0.4rem 0;'>"
+            f"{st.session_state.sched_year}년 {st.session_state.sched_month}월</h3>",
+            unsafe_allow_html=True,
+        )
+    with nav_r:
+        if st.button("▶", key="sched_next", use_container_width=True):
+            y, m = shift_month(
+                st.session_state.sched_year, st.session_state.sched_month, 1
+            )
+            st.session_state.sched_year, st.session_state.sched_month = y, m
             st.rerun()
 
-    timeline = project_timeline(project_id, repo=repo)
-    report = gap_report(project_id, repo=repo)
-    summary = report.get("summary") or {}
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Milestones", summary.get("milestones", 0))
-    m2.metric("Covered", summary.get("covered", 0))
-    m3.metric("Missing", summary.get("missing", 0))
-    m4.metric("Overdue", summary.get("overdue", 0))
-
-    st.markdown("### Gap report")
-    gaps = report.get("gaps") or []
-    if gaps:
-        st.dataframe(
-            [
-                {
-                    "title": g["title"],
-                    "due": g["due_date"],
-                    "type": g["deliverable_type"],
-                    "coverage": g["coverage"],
-                    "status": g["effective_status"],
-                    "matched": g["matched_filename"] or "-",
-                    "reason": g["match_reason"] or "-",
-                }
-                for g in gaps
-            ],
-            use_container_width=True,
-        )
-    else:
-        st.write("No milestones yet.")
-
-    c_a, c_b = st.columns(2)
-    if c_a.button("Auto-link covered milestones", key="mile_autolink"):
-        linked = auto_link_milestones(project_id, repo=repo)
-        st.success(f"updated={linked.get('updated')}")
-        st.rerun()
-
-    st.markdown("### Timeline")
-    for ev in timeline.get("events") or []:
-        st.markdown(
-            f"- `{ev.get('date') or 'n/a'}` · **{ev['kind']}** · {ev.get('title')} "
-            f"({ev.get('status')}/{ev.get('deliverable_type')})"
-        )
-
-    unlinked = report.get("orphan_documents") or []
-    if unlinked:
-        st.markdown("### Unlinked documents — no milestone match")
-        for d in unlinked:
-            st.write(
-                f"- {d['filename']} · type={d.get('doc_type')} · {d.get('created_at', '')[:10]}"
+    with filt1:
+        proj_choice = st.selectbox("과제 필터", project_options, key="sched_proj_filter")
+        filter_project_id = project_ids[project_options.index(proj_choice)] or None
+    with filt2:
+        status_options = ["(전체)"] + [STATUS_LABELS[s] for s in STATUSES]
+        status_choice = st.selectbox("상태 필터", status_options, key="sched_status_filter")
+        filter_status = None
+        if status_choice != "(전체)":
+            filter_status = next(
+                s for s in STATUSES if STATUS_LABELS[s] == status_choice
             )
+
+    year = int(st.session_state.sched_year)
+    month = int(st.session_state.sched_month)
+    items = list_month_items(
+        year,
+        month,
+        repo=repo,
+        project_id=filter_project_id,
+        status=filter_status,
+    )
+    by_day = items_by_date(items)
+
+    weekday_labels = ["월", "화", "수", "목", "금", "토", "일"]
+    header_cols = st.columns(7)
+    for i, label in enumerate(weekday_labels):
+        header_cols[i].markdown(
+            f"<div style='text-align:center;font-weight:600;opacity:0.7;'>{label}</div>",
+            unsafe_allow_html=True,
+        )
+
+    for week_i, week in enumerate(month_grid(year, month)):
+        cols = st.columns(7)
+        for day_i, day in enumerate(week):
+            with cols[day_i]:
+                if day is None:
+                    st.markdown(
+                        "<div style='min-height:5.5rem;opacity:0.15;'>&nbsp;</div>",
+                        unsafe_allow_html=True,
+                    )
+                    continue
+                key = day.isoformat()
+                day_items = by_day.get(key) or []
+                is_today = day == today
+                border = "#2563eb" if is_today else "#e5e7eb"
+                bg = "#eff6ff" if is_today else "#fafafa"
+                lines = [f"**{day.day}**"]
+                for it in day_items[:4]:
+                    mark = EVENT_TYPE_MARK.get(normalize_event_type(it.get("event_type")), "·")
+                    title_short = (it.get("title") or "")[:14]
+                    lines.append(f"{mark} {title_short}")
+                if len(day_items) > 4:
+                    lines.append(f"+{len(day_items) - 4}")
+                body = "<br/>".join(lines)
+                st.markdown(
+                    f"<div style='min-height:5.5rem;padding:0.35rem;border:1px solid {border};"
+                    f"border-radius:6px;background:{bg};font-size:0.78rem;line-height:1.35;'>"
+                    f"{body}</div>",
+                    unsafe_allow_html=True,
+                )
+                if day_items and st.button(
+                    "보기",
+                    key=f"sched_day_{week_i}_{day_i}",
+                    use_container_width=True,
+                ):
+                    st.session_state.sched_selected_date = key
+
+    selected = st.session_state.get("sched_selected_date")
+    if selected and selected in by_day:
+        st.markdown(f"### {selected} 일정")
+        for it in by_day[selected]:
+            pid = it.get("project_id") or ""
+            pname = (project_map.get(pid) or {}).get("title") or pid
+            st.markdown(
+                f"- {EVENT_TYPE_MARK.get(normalize_event_type(it.get('event_type')), '·')} "
+                f"**{it.get('title')}** · {event_type_label(it.get('event_type'))} · "
+                f"{status_label(it.get('status'))} · `{pname}`"
+            )
+            note = (it.get("note") or "").strip()
+            if note:
+                st.caption(note)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("이번 달 일정", len(items))
+    m2.metric("회의", sum(1 for i in items if normalize_event_type(i.get("event_type")) == "meeting"))
+    m3.metric("제출", sum(1 for i in items if normalize_event_type(i.get("event_type")) == "submission"))
+    m4.metric(
+        "완료",
+        sum(1 for i in items if normalize_status(i.get("status")) == "done"),
+    )
+
+    st.markdown("### 일정 추가")
+    with st.form("sched_add_form", clear_on_submit=True):
+        a1, a2 = st.columns(2)
+        add_proj_labels = [
+            f"{p['project_id']} · {p.get('title') or ''}" for p in projects
+        ]
+        add_proj = a1.selectbox("과제", add_proj_labels, key="sched_add_proj")
+        add_title = a2.text_input("제목", key="sched_add_title")
+        b1, b2, b3 = st.columns(3)
+        add_date = b1.date_input("날짜", value=today, key="sched_add_date")
+        add_type = b2.selectbox(
+            "유형",
+            list(EVENT_TYPES),
+            format_func=lambda x: EVENT_TYPE_LABELS[x],
+            key="sched_add_type",
+        )
+        add_status = b3.selectbox(
+            "상태",
+            list(STATUSES),
+            format_func=lambda x: STATUS_LABELS[x],
+            key="sched_add_status",
+        )
+        add_note = st.text_area("메모", key="sched_add_note", height=68)
+        submitted = st.form_submit_button("일정 등록", type="primary")
+        if submitted:
+            if not (add_title or "").strip():
+                st.warning("제목을 입력하세요.")
+            else:
+                add_pid = projects[add_proj_labels.index(add_proj)]["project_id"]
+                sid = repo.add_schedule_item(
+                    project_id=add_pid,
+                    title=add_title.strip(),
+                    event_type=normalize_event_type(add_type),
+                    date=add_date.isoformat(),
+                    status=normalize_status(add_status),
+                    note=(add_note or "").strip(),
+                )
+                st.success(f"등록됨 ({sid[:8]})")
+                st.rerun()
+
+    st.markdown("### 일정 목록 · 수정/삭제")
+    if not items:
+        st.write("이번 달에 표시할 일정이 없습니다.")
+        return
+
+    for it in items:
+        iid = it["id"]
+        with st.expander(
+            f"{it.get('date')} · {EVENT_TYPE_MARK.get(normalize_event_type(it.get('event_type')), '·')} "
+            f"{it.get('title')} · {status_label(it.get('status'))}"
+        ):
+            e1, e2 = st.columns(2)
+            new_title = e1.text_input("제목", value=it.get("title") or "", key=f"sched_t_{iid}")
+            new_date = e2.text_input("날짜 (YYYY-MM-DD)", value=it.get("date") or "", key=f"sched_d_{iid}")
+            e3, e4, e5 = st.columns(3)
+            type_idx = list(EVENT_TYPES).index(normalize_event_type(it.get("event_type")))
+            status_idx = list(STATUSES).index(normalize_status(it.get("status")))
+            new_type = e3.selectbox(
+                "유형",
+                list(EVENT_TYPES),
+                index=type_idx,
+                format_func=lambda x: EVENT_TYPE_LABELS[x],
+                key=f"sched_ty_{iid}",
+            )
+            new_status = e4.selectbox(
+                "상태",
+                list(STATUSES),
+                index=status_idx,
+                format_func=lambda x: STATUS_LABELS[x],
+                key=f"sched_st_{iid}",
+            )
+            proj_labels = [f"{p['project_id']} · {p.get('title') or ''}" for p in projects]
+            cur_pid = it.get("project_id") or ""
+            try:
+                proj_idx = next(
+                    i for i, p in enumerate(projects) if p["project_id"] == cur_pid
+                )
+            except StopIteration:
+                proj_idx = 0
+            new_proj = e5.selectbox(
+                "과제",
+                proj_labels,
+                index=proj_idx,
+                key=f"sched_p_{iid}",
+            )
+            new_note = st.text_area(
+                "메모",
+                value=it.get("note") or "",
+                key=f"sched_n_{iid}",
+                height=68,
+            )
+            u1, u2 = st.columns(2)
+            if u1.button("저장", key=f"sched_save_{iid}"):
+                new_pid = projects[proj_labels.index(new_proj)]["project_id"]
+                repo.update_schedule_item(
+                    iid,
+                    title=(new_title or "").strip() or it.get("title"),
+                    date=(new_date or "").strip() or it.get("date"),
+                    event_type=normalize_event_type(new_type),
+                    status=normalize_status(new_status),
+                    project_id=new_pid,
+                    note=(new_note or "").strip(),
+                )
+                st.success("저장됨")
+                st.rerun()
+            if u2.button("삭제", key=f"sched_del_{iid}"):
+                repo.delete_schedule_item(iid)
+                st.success("삭제됨")
+                st.rerun()
 
 
 if __name__ == "__main__":

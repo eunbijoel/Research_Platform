@@ -131,6 +131,21 @@ class KnowledgeRepository:
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones(project_id);
+
+                CREATE TABLE IF NOT EXISTS schedule_items (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'planned',
+                    note TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(project_id) REFERENCES projects(project_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_schedule_project ON schedule_items(project_id);
+                CREATE INDEX IF NOT EXISTS idx_schedule_date ON schedule_items(date);
                 """
             )
 
@@ -490,6 +505,7 @@ class KnowledgeRepository:
                 """
                 SELECT p.*,
                        (SELECT COUNT(*) FROM milestones m WHERE m.project_id = p.project_id) AS milestone_count,
+                       (SELECT COUNT(*) FROM schedule_items s WHERE s.project_id = p.project_id) AS schedule_count,
                        (SELECT COUNT(*) FROM documents d
                         WHERE d.project_id = p.project_id AND d.status = 'ready') AS document_count
                 FROM projects p
@@ -522,6 +538,7 @@ class KnowledgeRepository:
                 conn.execute("DELETE FROM facts WHERE document_id = ?", (doc_id,))
             conn.execute("DELETE FROM documents WHERE project_id = ?", (project_id,))
             conn.execute("DELETE FROM milestones WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM schedule_items WHERE project_id = ?", (project_id,))
             conn.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
         if doc_ids:
             self.rebuild_index()
@@ -567,6 +584,10 @@ class KnowledgeRepository:
                 )
                 conn.execute(
                     "UPDATE milestones SET project_id = ? WHERE project_id = ?",
+                    (new_id, old_id),
+                )
+                conn.execute(
+                    "UPDATE schedule_items SET project_id = ? WHERE project_id = ?",
                     (new_id, old_id),
                 )
                 conn.execute("DELETE FROM projects WHERE project_id = ?", (old_id,))
@@ -664,3 +685,90 @@ class KnowledgeRepository:
                 (project_id,),
             ).fetchall()
             return [_enrich_document(dict(r)) for r in rows]  # type: ignore[misc]
+
+    # --- Project schedule / calendar ---
+
+    def add_schedule_item(
+        self,
+        *,
+        project_id: str,
+        title: str,
+        event_type: str,
+        date: str,
+        status: str = "planned",
+        note: str = "",
+    ) -> str:
+        project_id = (project_id or "").strip()
+        title = (title or "").strip()
+        event_type = (event_type or "").strip()
+        date = (date or "").strip()
+        status = (status or "planned").strip() or "planned"
+        if not project_id or not title or not event_type or not date:
+            raise ValueError("project_id, title, event_type, date required")
+        sid = str(uuid.uuid4())
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO schedule_items (
+                    id, project_id, title, event_type, date, status, note, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (sid, project_id, title, event_type, date, status, note or "", _utc_now()),
+            )
+        return sid
+
+    def update_schedule_item(self, item_id: str, **fields: Any) -> None:
+        allowed = {"title", "event_type", "date", "status", "note", "project_id"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return
+        cols = ", ".join(f"{k}=?" for k in updates)
+        values = list(updates.values()) + [item_id]
+        with self._conn() as conn:
+            conn.execute(f"UPDATE schedule_items SET {cols} WHERE id=?", values)
+
+    def delete_schedule_item(self, item_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM schedule_items WHERE id = ?", (item_id,))
+
+    def get_schedule_item(self, item_id: str) -> dict[str, Any] | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM schedule_items WHERE id = ?",
+                (item_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_schedule_items(
+        self,
+        *,
+        project_id: str | None = None,
+        status: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if project_id:
+            clauses.append("project_id = ?")
+            params.append(project_id)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if date_from:
+            clauses.append("date >= ?")
+            params.append(date_from)
+        if date_to:
+            clauses.append("date <= ?")
+            params.append(date_to)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM schedule_items
+                {where}
+                ORDER BY date ASC, created_at ASC
+                """,
+                params,
+            ).fetchall()
+            return [dict(r) for r in rows]

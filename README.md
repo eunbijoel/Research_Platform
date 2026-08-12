@@ -82,9 +82,9 @@ flowchart TB
 Future Capabilities
 
 
-| Tab           | 하는 일                                               |
-| ------------- | -------------------------------------------------- |
-| **Milestone** | 과제별 예정 산출물과 Memory 문서를 대조합니다. 빠진 것·기한 지난 것을 보여줍니다. |
+| Tab         | 하는 일                                                              |
+| ----------- | ----------------------------------------------------------------- |
+| **과제 일정**   | 과제별 회의·제출·작업·마일스톤을 월간 캘린더로 등록·조회합니다. (알림/외부 캘린더 연동은 미포함) |
 
 
 ---
@@ -107,7 +107,7 @@ app.py                 UI
 research_memory/
   pipeline/            문서 파싱 · 메타/Fact · 인제스트
   kb/                  Knowledge Base
-  engine/              Chat · Similarity · Proposal · Tracking
+  engine/              Chat · Similarity · Proposal · Schedule · Tracking
                  docsim/  (유사도: MiniLM · 파서 · pHash)
 ```
 
