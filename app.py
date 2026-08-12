@@ -2718,7 +2718,7 @@ def _schedule_panel() -> None:
                 is_today = day == today
                 border = "#2563eb" if is_today else "#e5e7eb"
                 bg = "#eff6ff" if is_today else "#fafafa"
-                lines = [f"**{day.day}**"]
+                lines = [f"<strong>{day.day}</strong>"]
                 for it in day_items[:4]:
                     mark = EVENT_TYPE_MARK.get(normalize_event_type(it.get("event_type")), "·")
                     title_short = (it.get("title") or "")[:14]
