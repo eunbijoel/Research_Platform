@@ -108,7 +108,7 @@ MAIN_NAV = [
     (PAGE_SIMILARITY, "🔍 유사도 검토"),
 ]
 FUTURE_NAV = [
-    (PAGE_SCHEDULE, "📅 과제 일정"),
+    (PAGE_SCHEDULE, "📅 일정 관리"),
 ]
 
 
@@ -316,7 +316,7 @@ def main() -> None:
         _similarity_panel()
     elif page == PAGE_SCHEDULE:
         _roadmap_banner(
-            "과제 일정",
+            "일정 관리",
             "과제별 회의·제출·작업·마일스톤을 월간 캘린더로 관리합니다.",
         )
         _schedule_panel()
