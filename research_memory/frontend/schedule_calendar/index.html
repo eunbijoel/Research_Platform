@@ -26,29 +26,42 @@
         send("streamlit:setFrameHeight", { height: h });
       }
 
-      function bind() {
-        document.querySelectorAll("[data-sched-date]").forEach(function (el) {
-          el.addEventListener("click", function (event) {
+      function sendValue(value) {
+        send("streamlit:setComponentValue", { value: value, dataType: "json" });
+      }
+
+      document.getElementById("root").addEventListener(
+        "click",
+        function (event) {
+          const chip = event.target.closest(".rm-cal-html-chip");
+          if (chip) {
             event.preventDefault();
             event.stopPropagation();
-            send("streamlit:setComponentValue", {
-              value: {
-                date: el.getAttribute("data-sched-date") || "",
-                item: el.getAttribute("data-sched-item") || "",
-                t: Date.now(),
-              },
-              dataType: "json",
+            sendValue({
+              date: chip.getAttribute("data-sched-date") || "",
+              item: chip.getAttribute("data-sched-item") || "",
+              t: Date.now(),
             });
+            return;
+          }
+          const cell = event.target.closest(".rm-cal-html-cell");
+          if (!cell) return;
+          event.preventDefault();
+          event.stopPropagation();
+          sendValue({
+            date: cell.getAttribute("data-sched-date") || "",
+            item: "",
+            t: Date.now(),
           });
-        });
-      }
+        },
+        true
+      );
 
       window.addEventListener("message", function (event) {
         if (!event.data || event.data.type !== "streamlit:render") return;
         const args = event.data.args || {};
         document.getElementById("dyn").textContent = args.css || "";
         document.getElementById("root").innerHTML = args.html || "";
-        bind();
         requestAnimationFrame(setHeight);
         setTimeout(setHeight, 80);
       });

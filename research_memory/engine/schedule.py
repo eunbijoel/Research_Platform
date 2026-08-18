@@ -5,7 +5,6 @@ import calendar
 import re
 from collections import defaultdict
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any
 
 from research_memory.kb.repository import KnowledgeRepository
@@ -122,7 +121,11 @@ def render_calendar_html(
             if selected_item_id and any(it["id"] == selected_item_id for it in day_items):
                 cell_classes.append("selected")
 
-            parts.append(f'<div class="{" ".join(cell_classes)}">')
+            parts.append(
+                f'<div class="{" ".join(cell_classes)}" '
+                f'data-sched-date="{html_mod.escape(date_key)}" '
+                f'title="빈 곳을 클릭해서 일정 추가">'
+            )
             parts.append(
                 f'<button type="button" class="rm-cal-html-daynum" '
                 f'data-sched-date="{html_mod.escape(date_key)}">{day.day}</button>'
@@ -170,23 +173,16 @@ def render_calendar_html(
 
 
 CALENDAR_IFRAME_CSS = """
-html, body {
-  margin: 0;
-  padding: 0;
-  background: transparent;
-  font-family: "Source Sans 3", "Source Sans Pro", "Noto Sans KR", sans-serif;
-  color: #0f172a;
-}
-button {
-  font: inherit;
-}
 .rm-cal-card {
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 0.75rem;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
   padding: 1rem 1.1rem 1.15rem;
+  font-family: "Source Sans 3", "Source Sans Pro", "Noto Sans KR", sans-serif;
+  color: #0f172a;
 }
+.rm-cal-card button { font: inherit; }
 .rm-cal-card-title {
   display: flex;
   align-items: center;
@@ -227,6 +223,8 @@ button {
   background: #ffffff;
   padding: 0.45rem 0.5rem 0.35rem;
   overflow: hidden;
+  user-select: none;
+  cursor: pointer;
   transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
 .rm-cal-html-cell:hover {
@@ -335,34 +333,51 @@ button {
 }
 """
 
-_cal_component = None
-
-
-def _get_calendar_component():
-    global _cal_component
-    if _cal_component is None:
-        import streamlit.components.v1 as components
-
-        _cal_component = components.declare_component(
-            "schedule_calendar",
-            path=str(Path(__file__).resolve().parent.parent / "frontend" / "schedule_calendar"),
-        )
-    return _cal_component
+CALENDAR_CLICK_JS = """
+(function () {
+  if (window.__rmCalClickBound) return;
+  window.__rmCalClickBound = true;
+  document.addEventListener("click", function (event) {
+    var chip = event.target.closest(".rm-cal-html-chip");
+    var cell = event.target.closest(".rm-cal-html-cell");
+    var dateKey = "";
+    var itemId = "";
+    if (chip) {
+      dateKey = chip.getAttribute("data-sched-date") || "";
+      itemId = chip.getAttribute("data-sched-item") || "";
+    } else if (cell) {
+      dateKey = cell.getAttribute("data-sched-date") || "";
+    } else {
+      return;
+    }
+    if (!dateKey && !itemId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    var url = new URL(window.location.href);
+    url.searchParams.set("sched_view", "1");
+    if (dateKey) url.searchParams.set("sched_date", dateKey);
+    else url.searchParams.delete("sched_date");
+    if (itemId) url.searchParams.set("sched_item", itemId);
+    else url.searchParams.delete("sched_item");
+    window.location.assign(url.href);
+  }, true);
+})();
+"""
 
 
 def mount_schedule_calendar(html: str) -> dict | None:
-    """Render the month grid inside an iframe so clicks never navigate the app."""
-    card_html = (
-        '<div class="rm-cal-card">'
+    """Render the month grid in-page so day/chip clicks open the popup."""
+    import streamlit as st
+
+    payload = (
+        f"<style>{CALENDAR_IFRAME_CSS}</style>"
+        '<div class="rm-cal-card" id="rm-cal-root">'
         '<div class="rm-cal-card-title"><span>📅</span><span>일정 캘린더</span></div>'
         f"{html}</div>"
+        f"<script>{CALENDAR_CLICK_JS}</script>"
     )
-    return _get_calendar_component()(
-        html=card_html,
-        css=CALENDAR_IFRAME_CSS,
-        default=None,
-        key="sched_cal_grid",
-    )
+    st.html(payload, unsafe_allow_javascript=True)
+    return None
 
 
 def month_bounds(year: int, month: int) -> tuple[str, str]:

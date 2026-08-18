@@ -63,7 +63,7 @@ from research_memory.engine.similarity import (
 )
 from research_memory.engine import schedule as schedule_engine
 
-if not hasattr(schedule_engine, "mount_schedule_calendar"):
+if not hasattr(schedule_engine, "CALENDAR_CLICK_JS"):
     schedule_engine = importlib.reload(schedule_engine)
 
 from research_memory.engine.schedule import (
@@ -330,6 +330,7 @@ def _sched_handle_query_params() -> None:
     elif sched_date:
         st.session_state.sched_selected_date = sched_date
         st.session_state.pop("sched_selected_item_id", None)
+        st.session_state.sched_open_add = True
     for key in ("sched_item", "sched_date", "sched_view"):
         if key in qp:
             del qp[key]
@@ -339,6 +340,7 @@ def _sched_handle_query_params() -> None:
 def _sched_clear_selection() -> None:
     st.session_state.pop("sched_selected_item_id", None)
     st.session_state.pop("sched_selected_date", None)
+    st.session_state.pop("sched_open_add", None)
     st.session_state.pop("sched_dlg_loaded", None)
 
 
@@ -2933,7 +2935,7 @@ def _render_proposal_review(findings: list) -> None:
 def _schedule_panel() -> None:
     from datetime import date as date_cls
 
-    st.caption("날짜를 클릭하면 일정을 추가하고, 일정 칩을 클릭하면 상세가 팝업으로 열립니다.")
+    st.caption("날짜 칸의 빈 곳을 클릭하면 일정을 추가하고, 일정 칩을 클릭하면 상세가 팝업으로 열립니다.")
 
     with st.expander("과제 등록·수정", expanded=False):
         pid = st.text_input("과제 ID", key="sched_pid")
@@ -3008,6 +3010,7 @@ def _schedule_panel() -> None:
             st.session_state.sched_month = today.month
             st.session_state.sched_selected_date = today.isoformat()
             st.session_state.pop("sched_selected_item_id", None)
+            st.session_state.pop("sched_open_add", None)
             st.rerun()
 
     nav_l, nav_c, nav_r = st.columns([1, 2, 1])
@@ -3062,20 +3065,23 @@ def _schedule_panel() -> None:
             date_key = str(click.get("date") or "").strip()
             if item_id:
                 st.session_state.sched_selected_item_id = item_id
+                st.session_state.pop("sched_open_add", None)
                 if date_key:
                     st.session_state.sched_selected_date = date_key
             elif date_key:
                 st.session_state.sched_selected_date = date_key
                 st.session_state.pop("sched_selected_item_id", None)
-            st.rerun()
+                st.session_state.sched_open_add = True
 
+    selected_item_id = st.session_state.get("sched_selected_item_id")
+    selected_date = st.session_state.get("sched_selected_date")
     selected_item = items_by_id.get(selected_item_id or "")
     if selected_item is None and selected_item_id:
         selected_item = repo.get_schedule_item(selected_item_id)
 
     if selected_item:
         _schedule_edit_dialog(selected_item, projects, project_labels, project_map)
-    elif selected_date:
+    elif st.session_state.get("sched_open_add") and selected_date:
         try:
             add_day = date_cls.fromisoformat(selected_date)
         except ValueError:
