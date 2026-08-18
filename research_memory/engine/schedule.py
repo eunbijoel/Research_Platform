@@ -28,6 +28,12 @@ EVENT_TYPE_MARK = {
     "task": "☑",
     "milestone": "🏁",
 }
+EVENT_CHIP_CLASS = {
+    "meeting": "rm-chip-meeting",
+    "submission": "rm-chip-submission",
+    "task": "rm-chip-task",
+    "milestone": "rm-chip-milestone",
+}
 
 
 def normalize_event_type(value: str | None) -> str:
@@ -53,6 +59,12 @@ def event_type_label(value: str | None) -> str:
 
 def status_label(value: str | None) -> str:
     return STATUS_LABELS.get(normalize_status(value), "예정")
+
+
+def event_chip_class(event_type: str | None, status: str | None = None) -> str:
+    if normalize_status(status) == "done":
+        return "rm-chip-done"
+    return EVENT_CHIP_CLASS.get(normalize_event_type(event_type), "rm-chip-task")
 
 
 def month_bounds(year: int, month: int) -> tuple[str, str]:
@@ -97,6 +109,29 @@ def month_grid(year: int, month: int) -> list[list[date | None]]:
             row.append(day if day.month == month else None)
         grid.append(row)
     return grid
+
+
+def calendar_grid_sunday(year: int, month: int) -> list[list[date]]:
+    """6-week Sun–Sat grid (myown-style), including adjacent month days."""
+    from datetime import timedelta
+
+    first = date(year, month, 1)
+    offset = (first.weekday() + 1) % 7
+    start = first - timedelta(days=offset)
+    grid: list[list[date]] = []
+    cursor = start
+    for _ in range(6):
+        week: list[date] = []
+        for _ in range(7):
+            week.append(cursor)
+            cursor += timedelta(days=1)
+        grid.append(week)
+    return grid
+
+
+def grid_date_bounds(grid: list[list[date]]) -> tuple[str, str]:
+    flat = [day for week in grid for day in week]
+    return flat[0].isoformat(), flat[-1].isoformat()
 
 
 def shift_month(year: int, month: int, delta: int) -> tuple[int, int]:

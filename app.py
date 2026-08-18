@@ -66,10 +66,11 @@ from research_memory.engine.schedule import (
     EVENT_TYPES,
     STATUS_LABELS,
     STATUSES,
+    calendar_grid_sunday,
+    event_chip_class,
     event_type_label,
+    grid_date_bounds,
     items_by_date,
-    list_month_items,
-    month_grid,
     normalize_event_type,
     normalize_status,
     shift_month,
@@ -223,6 +224,157 @@ div[data-testid="stExpander"] > details > summary span {
   color: rgba(49, 51, 63, 0.92);
   white-space: pre-wrap;
   word-break: break-word;
+}
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _inject_schedule_calendar_css() -> None:
+    st.markdown(
+        """
+<style>
+.rm-cal-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  padding: 1rem 1.1rem 1.15rem;
+  margin: 0.35rem 0 1rem;
+}
+.rm-cal-card-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 0.85rem;
+}
+.rm-cal-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.85rem;
+}
+.rm-cal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  margin-bottom: 0.75rem;
+}
+.rm-cal-nav-label {
+  min-width: 9rem;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+.rm-cal-weekday {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  padding: 0.2rem 0 0.45rem;
+}
+.rm-cal-grid div[data-testid="column"] {
+  padding: 0.15rem !important;
+}
+.rm-cal-grid div[data-testid="column"]:has(.rm-cal-marker) {
+  min-height: 7rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  padding: 0.45rem 0.5rem 0.35rem !important;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.rm-cal-grid div[data-testid="column"]:has(.rm-cal-marker):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+  z-index: 2;
+}
+.rm-cal-grid div[data-testid="column"]:has(.rm-cal-out) {
+  background: #f8fafc;
+  border-color: transparent;
+}
+.rm-cal-grid div[data-testid="column"]:has(.rm-cal-today) {
+  border-color: rgba(37, 99, 235, 0.45);
+  background: rgba(219, 234, 254, 0.45);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+}
+.rm-cal-grid div[data-testid="column"]:has(.rm-cal-selected) {
+  border-color: #dbeafe;
+  box-shadow: 0 0 0 2px rgba(219, 234, 254, 0.95);
+}
+.rm-cal-marker,
+.rm-chip-tone {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.rm-cal-grid div[data-testid="column"]:has(.rm-cal-marker) div[data-testid="stButton"] {
+  margin-bottom: 0.15rem !important;
+}
+.rm-cal-grid div[data-testid="column"]:has(.rm-cal-marker) div[data-testid="stButton"]:first-of-type button {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: #0f172a !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  min-height: 1.35rem !important;
+  height: 1.35rem !important;
+  padding: 0 !important;
+  justify-content: flex-start !important;
+}
+.rm-cal-grid div[data-testid="column"]:has(.rm-cal-out) div[data-testid="stButton"]:first-of-type button {
+  color: #94a3b8 !important;
+}
+.rm-cal-grid div[data-testid="column"]:has(.rm-cal-marker) div[data-testid="stButton"]:not(:first-of-type) button {
+  font-size: 0.75rem !important;
+  line-height: 1.25 !important;
+  min-height: 1.45rem !important;
+  height: auto !important;
+  padding: 0.12rem 0.35rem !important;
+  border-radius: 0.25rem !important;
+  border: none !important;
+  justify-content: flex-start !important;
+  text-align: left !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+.rm-cal-grid .element-container:has(.rm-chip-tone.rm-chip-meeting) + .element-container button {
+  background: #dbeafe !important;
+  color: #1d4ed8 !important;
+}
+.rm-cal-grid .element-container:has(.rm-chip-tone.rm-chip-submission) + .element-container button {
+  background: #ffedd5 !important;
+  color: #c2410c !important;
+}
+.rm-cal-grid .element-container:has(.rm-chip-tone.rm-chip-task) + .element-container button {
+  background: #f1f5f9 !important;
+  color: #475569 !important;
+}
+.rm-cal-grid .element-container:has(.rm-chip-tone.rm-chip-milestone) + .element-container button {
+  background: #fee2e2 !important;
+  color: #b91c1c !important;
+}
+.rm-cal-grid .element-container:has(.rm-chip-tone.rm-chip-done) + .element-container button {
+  background: #f1f5f9 !important;
+  color: #64748b !important;
+  text-decoration: line-through !important;
+}
+.rm-cal-grid .element-container:has(.rm-chip-tone.rm-chip-selected) + .element-container button {
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.35) !important;
+}
+.rm-cal-more {
+  font-size: 0.72rem;
+  color: #64748b;
+  margin-top: 0.1rem;
 }
 </style>
         """,
@@ -2592,8 +2744,7 @@ def _render_proposal_review(findings: list) -> None:
 def _schedule_panel() -> None:
     from datetime import date as date_cls
 
-    st.subheader("월간 캘린더")
-    st.caption("날짜를 클릭해 일정을 추가하고, 일정을 클릭하면 상세를 볼 수 있습니다.")
+    st.caption("날짜를 클릭해 일정을 추가하고, 일정 칩을 클릭하면 상세를 볼 수 있습니다.")
 
     with st.expander("과제 등록·수정", expanded=False):
         pid = st.text_input("과제 ID", key="sched_pid")
@@ -2635,9 +2786,46 @@ def _schedule_panel() -> None:
     if "sched_month" not in st.session_state:
         st.session_state.sched_month = today.month
 
-    nav_l, nav_c, nav_r, filt1, filt2 = st.columns([1, 2, 1, 2, 2])
+    year = int(st.session_state.sched_year)
+    month = int(st.session_state.sched_month)
+    cal_grid = calendar_grid_sunday(year, month)
+    grid_from, grid_to = grid_date_bounds(cal_grid)
+
+    _inject_schedule_calendar_css()
+    st.markdown('<div class="rm-cal-card">', unsafe_allow_html=True)
+    st.markdown('<div class="rm-cal-card-title">일정 캘린더</div>', unsafe_allow_html=True)
+
+    tool_l, tool_r = st.columns([4, 1])
+    with tool_l:
+        filt1, filt2 = st.columns(2)
+        with filt1:
+            st.caption("과제")
+            proj_choice = st.selectbox(
+                "과제 필터", project_options, key="sched_proj_filter", label_visibility="collapsed"
+            )
+            filter_project_id = project_ids[project_options.index(proj_choice)] or None
+        with filt2:
+            st.caption("상태")
+            status_options = ["(전체)"] + [STATUS_LABELS[s] for s in STATUSES]
+            status_choice = st.selectbox(
+                "상태 필터", status_options, key="sched_status_filter", label_visibility="collapsed"
+            )
+            filter_status = None
+            if status_choice != "(전체)":
+                filter_status = next(
+                    s for s in STATUSES if STATUS_LABELS[s] == status_choice
+                )
+    with tool_r:
+        if st.button("오늘", key="sched_today", use_container_width=True):
+            st.session_state.sched_year = today.year
+            st.session_state.sched_month = today.month
+            st.session_state.sched_selected_date = today.isoformat()
+            st.session_state.pop("sched_selected_item_id", None)
+            st.rerun()
+
+    nav_l, nav_c, nav_r = st.columns([1, 2, 1])
     with nav_l:
-        if st.button("◀", key="sched_prev", use_container_width=True):
+        if st.button("‹", key="sched_prev", use_container_width=True):
             y, m = shift_month(
                 st.session_state.sched_year, st.session_state.sched_month, -1
             )
@@ -2645,90 +2833,99 @@ def _schedule_panel() -> None:
             st.rerun()
     with nav_c:
         st.markdown(
-            f"<h3 style='text-align:center;margin:0.4rem 0;'>"
-            f"{st.session_state.sched_year}년 {st.session_state.sched_month}월</h3>",
+            f'<div class="rm-cal-nav-label">{year}년 {month}월</div>',
             unsafe_allow_html=True,
         )
     with nav_r:
-        if st.button("▶", key="sched_next", use_container_width=True):
+        if st.button("›", key="sched_next", use_container_width=True):
             y, m = shift_month(
                 st.session_state.sched_year, st.session_state.sched_month, 1
             )
             st.session_state.sched_year, st.session_state.sched_month = y, m
             st.rerun()
 
-    with filt1:
-        proj_choice = st.selectbox("과제 필터", project_options, key="sched_proj_filter")
-        filter_project_id = project_ids[project_options.index(proj_choice)] or None
-    with filt2:
-        status_options = ["(전체)"] + [STATUS_LABELS[s] for s in STATUSES]
-        status_choice = st.selectbox("상태 필터", status_options, key="sched_status_filter")
-        filter_status = None
-        if status_choice != "(전체)":
-            filter_status = next(
-                s for s in STATUSES if STATUS_LABELS[s] == status_choice
-            )
-
-    year = int(st.session_state.sched_year)
-    month = int(st.session_state.sched_month)
-    items = list_month_items(
-        year,
-        month,
-        repo=repo,
+    items = repo.list_schedule_items(
         project_id=filter_project_id,
         status=filter_status,
+        date_from=grid_from,
+        date_to=grid_to,
     )
     by_day = items_by_date(items)
+    month_items = [it for it in items if str(it.get("date", "")).startswith(f"{year:04d}-{month:02d}")]
     items_by_id = {it["id"]: it for it in items}
 
     selected_item_id = st.session_state.get("sched_selected_item_id")
     selected_date = st.session_state.get("sched_selected_date")
 
-    weekday_labels = ["월", "화", "수", "목", "금", "토", "일"]
-    header_cols = st.columns(7)
+    st.markdown('<div class="rm-cal-grid">', unsafe_allow_html=True)
+    weekday_labels = ["일", "월", "화", "수", "목", "금", "토"]
+    header_cols = st.columns(7, gap="small")
     for i, label in enumerate(weekday_labels):
         header_cols[i].markdown(
-            f"<div style='text-align:center;font-weight:600;opacity:0.7;'>{label}</div>",
+            f'<div class="rm-cal-weekday">{label}</div>',
             unsafe_allow_html=True,
         )
 
-    for week_i, week in enumerate(month_grid(year, month)):
-        cols = st.columns(7)
+    for week_i, week in enumerate(cal_grid):
+        cols = st.columns(7, gap="small")
         for day_i, day in enumerate(week):
             with cols[day_i]:
-                if day is None:
-                    st.markdown(
-                        "<div style='min-height:6rem;opacity:0.15;'>&nbsp;</div>",
-                        unsafe_allow_html=True,
-                    )
-                    continue
                 date_key = day.isoformat()
+                in_month = day.month == month
                 day_items = by_day.get(date_key) or []
                 day_selected = selected_date == date_key and not selected_item_id
+                day_has_selected_item = any(it["id"] == selected_item_id for it in day_items)
+                marker_classes = ["rm-cal-marker"]
+                if not in_month:
+                    marker_classes.append("rm-cal-out")
+                if day == today:
+                    marker_classes.append("rm-cal-today")
+                if day_selected or day_has_selected_item:
+                    marker_classes.append("rm-cal-selected")
+                st.markdown(
+                    f"<span class='{' '.join(marker_classes)}'></span>",
+                    unsafe_allow_html=True,
+                )
                 if st.button(
                     str(day.day),
                     key=f"sched_day_{week_i}_{day_i}",
                     use_container_width=True,
-                    type="primary" if day_selected else "secondary",
+                    type="secondary",
                 ):
                     st.session_state.sched_selected_date = date_key
                     st.session_state.pop("sched_selected_item_id", None)
                     st.rerun()
-                for it in day_items[:4]:
-                    mark = EVENT_TYPE_MARK.get(normalize_event_type(it.get("event_type")), "·")
-                    title_short = (it.get("title") or "")[:12]
-                    item_selected = selected_item_id == it["id"]
+                for it in day_items[:3]:
+                    mark = EVENT_TYPE_MARK.get(
+                        normalize_event_type(it.get("event_type")), "·"
+                    )
+                    title_short = (it.get("title") or "")[:16]
+                    chip_cls = event_chip_class(it.get("event_type"), it.get("status"))
+                    if selected_item_id == it["id"]:
+                        chip_cls = f"{chip_cls} rm-chip-selected"
+                    st.markdown(
+                        f"<span class='rm-chip-tone {chip_cls}'></span>",
+                        unsafe_allow_html=True,
+                    )
                     if st.button(
                         f"{mark} {title_short}",
                         key=f"sched_item_{it['id']}",
                         use_container_width=True,
-                        type="primary" if item_selected else "secondary",
+                        type="secondary",
                     ):
                         st.session_state.sched_selected_item_id = it["id"]
                         st.session_state.sched_selected_date = date_key
                         st.rerun()
-                if len(day_items) > 4:
-                    st.caption(f"+{len(day_items) - 4}개")
+                if len(day_items) > 3:
+                    more_titles = ", ".join(
+                        (it.get("title") or "")[:20] for it in day_items[3:5]
+                    )
+                    st.markdown(
+                        f'<div class="rm-cal-more" title="{more_titles}">+{len(day_items) - 3}</div>',
+                        unsafe_allow_html=True,
+                    )
+
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
     selected_item = items_by_id.get(selected_item_id or "")
     if selected_item is None and selected_item_id:
@@ -2885,12 +3082,18 @@ def _schedule_panel() -> None:
                 )
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("이번 달 일정", len(items))
-    m2.metric("회의", sum(1 for i in items if normalize_event_type(i.get("event_type")) == "meeting"))
-    m3.metric("제출", sum(1 for i in items if normalize_event_type(i.get("event_type")) == "submission"))
+    m1.metric("이번 달 일정", len(month_items))
+    m2.metric(
+        "회의",
+        sum(1 for i in month_items if normalize_event_type(i.get("event_type")) == "meeting"),
+    )
+    m3.metric(
+        "제출",
+        sum(1 for i in month_items if normalize_event_type(i.get("event_type")) == "submission"),
+    )
     m4.metric(
         "완료",
-        sum(1 for i in items if normalize_status(i.get("status")) == "done"),
+        sum(1 for i in month_items if normalize_status(i.get("status")) == "done"),
     )
 
 
