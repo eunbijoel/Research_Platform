@@ -1,3 +1,5 @@
+**한국어** | [English](README_EN.md)
+
 # Research Memory Platform
 
 **An Organizational Research Intelligence Platform**
