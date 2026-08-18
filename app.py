@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import re
 import sys
 from datetime import date, datetime, time
@@ -60,6 +61,11 @@ from research_memory.engine.similarity import (
     compare_upload_vs_kb,
     compare_uploads,
 )
+from research_memory.engine import schedule as schedule_engine
+
+if not hasattr(schedule_engine, "mount_schedule_calendar"):
+    schedule_engine = importlib.reload(schedule_engine)
+
 from research_memory.engine.schedule import (
     EVENT_TYPE_LABELS,
     EVENT_TYPES,
@@ -69,6 +75,7 @@ from research_memory.engine.schedule import (
     chip_time_and_title,
     grid_date_bounds,
     items_by_date,
+    mount_schedule_calendar,
     normalize_event_type,
     normalize_status,
     render_calendar_html,
@@ -233,23 +240,6 @@ def _inject_schedule_calendar_css() -> None:
     st.markdown(
         """
 <style>
-.rm-cal-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.75rem;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
-  padding: 1rem 1.1rem 1.15rem;
-  margin: 0.35rem 0 1rem;
-}
-.rm-cal-card-title {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: #0f172a;
-  margin: 0 0 0.85rem;
-}
 .rm-cal-nav-label {
   min-width: 9rem;
   text-align: center;
@@ -258,160 +248,9 @@ def _inject_schedule_calendar_css() -> None:
   color: #0f172a;
   margin: 0;
 }
-.rm-cal-html {
-  width: 100%;
-}
-div[data-testid="stMarkdownContainer"]:has(.rm-cal-card) {
-  width: 100%;
-  max-width: none;
-}
-div[data-testid="stMarkdownContainer"]:has(.rm-cal-card) p {
-  margin: 0;
-}
-.rm-cal-html-head,
-.rm-cal-html-body {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 0.5rem;
-}
-.rm-cal-html-wd {
-  text-align: center;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #64748b;
-  padding: 0.15rem 0 0.35rem;
-}
-.rm-cal-html-wd:first-child {
-  color: #ef4444;
-}
-.rm-cal-html-wd:last-child {
-  color: #3b82f6;
-}
-.rm-cal-html-body {
-  min-height: 33rem;
-  grid-auto-rows: minmax(7.25rem, 1fr);
-}
-.rm-cal-html-cell {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  min-height: 7.25rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.5rem;
-  background: #ffffff;
-  padding: 0.45rem 0.5rem 0.35rem;
-  overflow: hidden;
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
-}
-.rm-cal-html-cell:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
-  z-index: 2;
-}
-.rm-cal-html-cell.out {
-  background: #f8fafc;
-  border-color: transparent;
-}
-.rm-cal-html-cell.out .rm-cal-html-daynum {
-  color: #94a3b8;
-}
-.rm-cal-html-cell.today {
-  border-color: rgba(37, 99, 235, 0.45);
-  background: rgba(219, 234, 254, 0.45);
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
-}
-.rm-cal-html-cell.selected {
-  border-color: #dbeafe;
-  box-shadow: 0 0 0 2px rgba(219, 234, 254, 0.95);
-}
-.rm-cal-html-cell.today.selected {
-  border-color: rgba(37, 99, 235, 0.45);
-  background: rgba(219, 234, 254, 0.45);
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18), 0 0 0 4px rgba(219, 234, 254, 0.85);
-}
-.rm-cal-html-daynum {
-  position: relative;
-  z-index: 2;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #0f172a;
-  text-decoration: none;
-  line-height: 1.2;
-  width: fit-content;
-}
-.rm-cal-html-daynum:hover {
-  color: #2563eb;
-}
-.rm-cal-html-hit {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  opacity: 0;
-}
-.rm-cal-html-chips {
-  position: relative;
-  z-index: 3;
-  display: flex;
-  flex-direction: column;
-  gap: 0.18rem;
-  margin-top: 0.1rem;
-  min-height: 0;
-  flex: 1;
-}
-.rm-cal-html-chip {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  min-width: 0;
-  font-size: 0.75rem;
-  line-height: 1.25rem;
-  font-weight: 500;
-  padding: 0.08rem 0.35rem;
-  border-radius: 0.25rem;
-  text-decoration: none;
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-.rm-cal-html-chip-time {
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-.rm-cal-html-chip-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.rm-cal-html-chip:hover {
-  filter: brightness(0.97);
-}
-.rm-cal-html-chip.rm-chip-submission {
-  background: #ffedd5;
-  color: #c2410c;
-}
-.rm-cal-html-chip.rm-chip-task {
-  background: #f1f5f9;
-  color: #475569;
-}
-.rm-cal-html-chip.rm-chip-milestone {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-.rm-cal-html-chip.rm-chip-done {
-  background: #f1f5f9;
-  color: #64748b;
-  text-decoration: line-through;
-}
-.rm-cal-html-chip.selected {
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.35);
-}
-.rm-cal-html-more {
-  position: relative;
-  z-index: 3;
-  font-size: 0.72rem;
-  color: #64748b;
-  margin-top: 0.05rem;
+div[data-testid="stCustomComponentV1"],
+iframe[title="schedule_calendar"] {
+  width: 100% !important;
 }
 div[data-testid="stDialog"] div[role="dialog"] {
   width: min(72rem, 96vw) !important;
@@ -499,8 +338,10 @@ def _sched_handle_query_params() -> None:
     qp = st.query_params
     sched_item = qp.get("sched_item")
     sched_date = qp.get("sched_date")
-    if not sched_item and not sched_date:
+    sched_view = qp.get("sched_view")
+    if not sched_item and not sched_date and not sched_view:
         return
+    st.session_state.page = PAGE_SCHEDULE
     if sched_item:
         st.session_state.sched_selected_item_id = sched_item
         if sched_date:
@@ -508,7 +349,7 @@ def _sched_handle_query_params() -> None:
     elif sched_date:
         st.session_state.sched_selected_date = sched_date
         st.session_state.pop("sched_selected_item_id", None)
-    for key in ("sched_item", "sched_date"):
+    for key in ("sched_item", "sched_date", "sched_view"):
         if key in qp:
             del qp[key]
     st.rerun()
@@ -773,6 +614,7 @@ def main() -> None:
     _inject_ui_css()
     if "page" not in st.session_state:
         st.session_state.page = PAGE_HOME
+    _sched_handle_query_params()
 
     with st.sidebar:
         st.markdown("### Research Memory")
@@ -3168,7 +3010,6 @@ def _schedule_panel() -> None:
     project_ids = [""] + [p["project_id"] for p in projects]
 
     today = date_cls.today()
-    _sched_handle_query_params()
     if "sched_year" not in st.session_state:
         st.session_state.sched_year = today.year
     if "sched_month" not in st.session_state:
@@ -3252,12 +3093,21 @@ def _schedule_panel() -> None:
         selected_date=selected_date,
         selected_item_id=selected_item_id,
     )
-    st.markdown(
-        f'<div class="rm-cal-card">'
-        f'<div class="rm-cal-card-title"><span>📅</span><span>일정 캘린더</span></div>'
-        f"{cal_html}</div>",
-        unsafe_allow_html=True,
-    )
+    click = mount_schedule_calendar(cal_html)
+    if isinstance(click, dict):
+        nonce = click.get("t")
+        if nonce and nonce != st.session_state.get("sched_click_nonce"):
+            st.session_state.sched_click_nonce = nonce
+            item_id = str(click.get("item") or "").strip()
+            date_key = str(click.get("date") or "").strip()
+            if item_id:
+                st.session_state.sched_selected_item_id = item_id
+                if date_key:
+                    st.session_state.sched_selected_date = date_key
+            elif date_key:
+                st.session_state.sched_selected_date = date_key
+                st.session_state.pop("sched_selected_item_id", None)
+            st.rerun()
 
     selected_item = items_by_id.get(selected_item_id or "")
     if selected_item is None and selected_item_id:

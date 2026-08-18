@@ -5,6 +5,7 @@ import calendar
 import re
 from collections import defaultdict
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
 from research_memory.kb.repository import KnowledgeRepository
@@ -123,11 +124,13 @@ def render_calendar_html(
 
             parts.append(f'<div class="{" ".join(cell_classes)}">')
             parts.append(
-                f'<a class="rm-cal-html-daynum" href="?sched_date={html_mod.escape(date_key)}">{day.day}</a>'
+                f'<button type="button" class="rm-cal-html-daynum" '
+                f'data-sched-date="{html_mod.escape(date_key)}">{day.day}</button>'
             )
             parts.append(
-                f'<a class="rm-cal-html-hit" href="?sched_date={html_mod.escape(date_key)}" '
-                f'aria-label="{html_mod.escape(date_key)} 일정 추가"></a>'
+                f'<button type="button" class="rm-cal-html-hit" '
+                f'data-sched-date="{html_mod.escape(date_key)}" '
+                f'aria-label="{html_mod.escape(date_key)} 일정 추가"></button>'
             )
             parts.append('<div class="rm-cal-html-chips">')
             for it in preview_items:
@@ -150,10 +153,10 @@ def render_calendar_html(
                     f"{chip_time} {chip_title}".strip() if chip_time else chip_title
                 )
                 parts.append(
-                    f'<a class="rm-cal-html-chip {chip_cls}" '
-                    f'href="?sched_item={iid}&sched_date={html_mod.escape(date_key)}" '
-                    f'title="{tooltip}">{time_html}'
-                    f'<span class="rm-cal-html-chip-title">{chip_title_esc}</span></a>'
+                    f'<button type="button" class="rm-cal-html-chip {chip_cls}" '
+                    f'data-sched-date="{html_mod.escape(date_key)}" '
+                    f'data-sched-item="{iid}" title="{tooltip}">{time_html}'
+                    f'<span class="rm-cal-html-chip-title">{chip_title_esc}</span></button>'
                 )
             parts.append("</div>")
             if len(day_items) > max_chips:
@@ -164,6 +167,202 @@ def render_calendar_html(
 
     parts.append("</div></div>")
     return "".join(parts)
+
+
+CALENDAR_IFRAME_CSS = """
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  font-family: "Source Sans 3", "Source Sans Pro", "Noto Sans KR", sans-serif;
+  color: #0f172a;
+}
+button {
+  font: inherit;
+}
+.rm-cal-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  padding: 1rem 1.1rem 1.15rem;
+}
+.rm-cal-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 0.85rem;
+}
+.rm-cal-html { width: 100%; }
+.rm-cal-html-head,
+.rm-cal-html-body {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.rm-cal-html-wd {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  padding: 0.15rem 0 0.35rem;
+}
+.rm-cal-html-wd:first-child { color: #ef4444; }
+.rm-cal-html-wd:last-child { color: #3b82f6; }
+.rm-cal-html-body {
+  min-height: 33rem;
+  grid-auto-rows: minmax(7.25rem, 1fr);
+}
+.rm-cal-html-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-height: 7.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  padding: 0.45rem 0.5rem 0.35rem;
+  overflow: hidden;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.rm-cal-html-cell:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+  z-index: 2;
+}
+.rm-cal-html-cell.out {
+  background: #f8fafc;
+  border-color: transparent;
+}
+.rm-cal-html-cell.out .rm-cal-html-daynum { color: #94a3b8; }
+.rm-cal-html-cell.today {
+  border-color: rgba(37, 99, 235, 0.45);
+  background: rgba(219, 234, 254, 0.45);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+}
+.rm-cal-html-cell.selected {
+  border-color: #dbeafe;
+  box-shadow: 0 0 0 2px rgba(219, 234, 254, 0.95);
+}
+.rm-cal-html-cell.today.selected {
+  border-color: rgba(37, 99, 235, 0.45);
+  background: rgba(219, 234, 254, 0.45);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18), 0 0 0 4px rgba(219, 234, 254, 0.85);
+}
+.rm-cal-html-daynum,
+.rm-cal-html-hit,
+.rm-cal-html-chip {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.rm-cal-html-daynum {
+  position: relative;
+  z-index: 2;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.2;
+  width: fit-content;
+  padding: 0;
+  background: transparent;
+}
+.rm-cal-html-daynum:hover { color: #2563eb; }
+.rm-cal-html-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0;
+  background: transparent;
+  padding: 0;
+}
+.rm-cal-html-chips {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  margin-top: 0.1rem;
+  min-height: 0;
+  flex: 1;
+}
+.rm-cal-html-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  padding: 0.08rem 0.35rem;
+  border-radius: 0.25rem;
+  background: #dbeafe;
+  color: #1d4ed8;
+  text-align: left;
+}
+.rm-cal-html-chip-time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.rm-cal-html-chip-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rm-cal-html-chip:hover { filter: brightness(0.97); }
+.rm-cal-html-chip.rm-chip-submission { background: #ffedd5; color: #c2410c; }
+.rm-cal-html-chip.rm-chip-task { background: #f1f5f9; color: #475569; }
+.rm-cal-html-chip.rm-chip-milestone { background: #fee2e2; color: #b91c1c; }
+.rm-cal-html-chip.rm-chip-done {
+  background: #f1f5f9;
+  color: #64748b;
+  text-decoration: line-through;
+}
+.rm-cal-html-chip.selected { box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.35); }
+.rm-cal-html-more {
+  position: relative;
+  z-index: 3;
+  font-size: 0.72rem;
+  color: #64748b;
+  margin-top: 0.05rem;
+}
+"""
+
+_cal_component = None
+
+
+def _get_calendar_component():
+    global _cal_component
+    if _cal_component is None:
+        import streamlit.components.v1 as components
+
+        _cal_component = components.declare_component(
+            "schedule_calendar",
+            path=str(Path(__file__).resolve().parent.parent / "frontend" / "schedule_calendar"),
+        )
+    return _cal_component
+
+
+def mount_schedule_calendar(html: str) -> dict | None:
+    """Render the month grid inside an iframe so clicks never navigate the app."""
+    card_html = (
+        '<div class="rm-cal-card">'
+        '<div class="rm-cal-card-title"><span>📅</span><span>일정 캘린더</span></div>'
+        f"{html}</div>"
+    )
+    return _get_calendar_component()(
+        html=card_html,
+        css=CALENDAR_IFRAME_CSS,
+        default=None,
+        key="sched_cal_grid",
+    )
 
 
 def month_bounds(year: int, month: int) -> tuple[str, str]:
