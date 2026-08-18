@@ -4,7 +4,7 @@ from __future__ import annotations
 import calendar
 import re
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 from research_memory.kb.repository import KnowledgeRepository
@@ -22,12 +22,6 @@ STATUS_LABELS = {
     "planned": "예정",
     "in_progress": "진행중",
     "done": "완료",
-}
-EVENT_TYPE_MARK = {
-    "meeting": "🗓",
-    "submission": "📤",
-    "task": "☑",
-    "milestone": "🏁",
 }
 EVENT_CHIP_CLASS = {
     "meeting": "rm-chip-meeting",
@@ -365,7 +359,7 @@ CALENDAR_CLICK_JS = """
 """
 
 
-def mount_schedule_calendar(html: str) -> dict | None:
+def mount_schedule_calendar(html: str) -> None:
     """Render the month grid in-page so day/chip clicks open the popup."""
     import streamlit as st
 
@@ -377,7 +371,6 @@ def mount_schedule_calendar(html: str) -> dict | None:
         f"<script>{CALENDAR_CLICK_JS}</script>"
     )
     st.html(payload, unsafe_allow_javascript=True)
-    return None
 
 
 def month_bounds(year: int, month: int) -> tuple[str, str]:
@@ -412,18 +405,6 @@ def items_by_date(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
     return dict(grouped)
 
 
-def month_grid(year: int, month: int) -> list[list[date | None]]:
-    """Return weeks as lists of 7 dates (Mon–Sun). Empty cells are None."""
-    weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(year, month)
-    grid: list[list[date | None]] = []
-    for week in weeks:
-        row: list[date | None] = []
-        for day in week:
-            row.append(day if day.month == month else None)
-        grid.append(row)
-    return grid
-
-
 def calendar_grid_sunday(year: int, month: int) -> list[list[date]]:
     """6-week Sun–Sat grid (myown-style), including adjacent month days."""
     from datetime import timedelta
@@ -450,13 +431,3 @@ def grid_date_bounds(grid: list[list[date]]) -> tuple[str, str]:
 def shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
     total = year * 12 + (month - 1) + delta
     return total // 12, total % 12 + 1
-
-
-def parse_iso_date(value: str) -> date | None:
-    value = (value or "").strip()
-    if not value:
-        return None
-    try:
-        return datetime.strptime(value[:10], "%Y-%m-%d").date()
-    except ValueError:
-        return None

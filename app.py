@@ -248,10 +248,6 @@ def _inject_schedule_calendar_css() -> None:
   color: #0f172a;
   margin: 0;
 }
-div[data-testid="stCustomComponentV1"],
-iframe[title="schedule_calendar"] {
-  width: 100% !important;
-}
 div[data-testid="stDialog"] div[role="dialog"] {
   width: min(40rem, 96vw) !important;
   max-width: 40rem !important;
@@ -408,7 +404,6 @@ def _schedule_task_form(
     item: dict | None,
     add_date: date | None,
     projects: list[dict],
-    project_labels: list[str],
     project_map: dict[str, dict],
 ) -> None:
     _sched_init_dialog_state(mode=mode, item=item, add_date=add_date, projects=projects)
@@ -542,7 +537,6 @@ def _schedule_task_form(
 def _schedule_edit_dialog(
     item: dict,
     projects: list[dict],
-    project_labels: list[str],
     project_map: dict[str, dict],
 ) -> None:
     _schedule_task_form(
@@ -550,7 +544,6 @@ def _schedule_edit_dialog(
         item=item,
         add_date=None,
         projects=projects,
-        project_labels=project_labels,
         project_map=project_map,
     )
 
@@ -559,7 +552,6 @@ def _schedule_edit_dialog(
 def _schedule_add_dialog(
     add_date: date,
     projects: list[dict],
-    project_labels: list[str],
     project_map: dict[str, dict],
 ) -> None:
     _schedule_task_form(
@@ -567,7 +559,6 @@ def _schedule_add_dialog(
         item=None,
         add_date=add_date,
         projects=projects,
-        project_labels=project_labels,
         project_map=project_map,
     )
 
@@ -2964,7 +2955,6 @@ def _schedule_panel() -> None:
         return
 
     project_map = {p["project_id"]: p for p in projects}
-    project_labels = [f"{p['project_id']} · {p.get('title') or ''}" for p in projects]
 
     today = date_cls.today()
     if "sched_year" not in st.session_state:
@@ -3043,37 +3033,20 @@ def _schedule_panel() -> None:
         selected_date=selected_date,
         selected_item_id=selected_item_id,
     )
-    click = mount_schedule_calendar(cal_html)
-    if isinstance(click, dict):
-        nonce = click.get("t")
-        if nonce and nonce != st.session_state.get("sched_click_nonce"):
-            st.session_state.sched_click_nonce = nonce
-            item_id = str(click.get("item") or "").strip()
-            date_key = str(click.get("date") or "").strip()
-            if item_id:
-                st.session_state.sched_selected_item_id = item_id
-                st.session_state.pop("sched_open_add", None)
-                if date_key:
-                    st.session_state.sched_selected_date = date_key
-            elif date_key:
-                st.session_state.sched_selected_date = date_key
-                st.session_state.pop("sched_selected_item_id", None)
-                st.session_state.sched_open_add = True
+    mount_schedule_calendar(cal_html)
 
-    selected_item_id = st.session_state.get("sched_selected_item_id")
-    selected_date = st.session_state.get("sched_selected_date")
     selected_item = items_by_id.get(selected_item_id or "")
     if selected_item is None and selected_item_id:
         selected_item = repo.get_schedule_item(selected_item_id)
 
     if selected_item:
-        _schedule_edit_dialog(selected_item, projects, project_labels, project_map)
+        _schedule_edit_dialog(selected_item, projects, project_map)
     elif st.session_state.get("sched_open_add") and selected_date:
         try:
             add_day = date_cls.fromisoformat(selected_date)
         except ValueError:
             add_day = today
-        _schedule_add_dialog(add_day, projects, project_labels, project_map)
+        _schedule_add_dialog(add_day, projects, project_map)
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("이번 달 일정", len(month_items))
