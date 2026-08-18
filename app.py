@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, time
 from html import escape
 from pathlib import Path
 
@@ -62,19 +62,17 @@ from research_memory.engine.similarity import (
 )
 from research_memory.engine.schedule import (
     EVENT_TYPE_LABELS,
-    EVENT_TYPE_MARK,
     EVENT_TYPES,
     STATUS_LABELS,
     STATUSES,
     calendar_grid_sunday,
-    event_type_label,
+    chip_time_and_title,
     grid_date_bounds,
     items_by_date,
     normalize_event_type,
     normalize_status,
     render_calendar_html,
     shift_month,
-    status_label,
 )
 from research_memory.kb.repository import KnowledgeRepository
 from research_memory.schema import (
@@ -415,6 +413,82 @@ div[data-testid="stMarkdownContainer"]:has(.rm-cal-card) p {
   color: #64748b;
   margin-top: 0.05rem;
 }
+div[data-testid="stDialog"] div[role="dialog"] {
+  width: min(72rem, 96vw) !important;
+  max-width: 72rem !important;
+}
+div[data-testid="stDialog"] .rm-dlg-kicker {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #64748b;
+  margin: 0 0 0.55rem;
+}
+div[data-testid="stDialog"] div[data-testid="column"]:has(.rm-dlg-toggle-mark) {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  padding: 0.7rem 0.85rem 0.55rem !important;
+}
+div[data-testid="stDialog"] div[data-testid="column"]:has(.rm-dlg-toggle-mark.on) {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+div[data-testid="stDialog"] .rm-dlg-toggle-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+div[data-testid="stDialog"] .rm-dlg-toggle-sub {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin: 0.1rem 0 0.25rem;
+}
+div[data-testid="stDialog"] div[data-testid="column"]:has(.rm-dlg-notify-mark) {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+  padding: 0.9rem 1rem 1rem !important;
+}
+div[data-testid="stDialog"] .rm-dlg-repeat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ecfdf5;
+  border-radius: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  margin: 0.35rem 0 0.15rem;
+  color: #166534;
+  font-weight: 600;
+}
+div[data-testid="stDialog"] .rm-dlg-repeat span {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #64748b;
+}
+div[data-testid="stDialog"] .element-container:has(.rm-dlg-btn.complete) + .element-container button {
+  color: #16a34a !important;
+  background: #ffffff !important;
+  border: 1px solid #86efac !important;
+}
+div[data-testid="stDialog"] .element-container:has(.rm-dlg-btn.delete) + .element-container button {
+  color: #dc2626 !important;
+  background: #ffffff !important;
+  border: 1px solid #fca5a5 !important;
+}
+div[data-testid="stDialog"] .rm-dlg-sent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 0.15rem;
+  font-size: 0.85rem;
+  color: #334155;
+}
+div[data-testid="stDialog"] .rm-dlg-sent b {
+  color: #16a34a;
+  font-weight: 700;
+  font-size: 0.78rem;
+}
 </style>
         """,
         unsafe_allow_html=True,
@@ -438,6 +512,261 @@ def _sched_handle_query_params() -> None:
         if key in qp:
             del qp[key]
     st.rerun()
+
+
+def _sched_clear_selection() -> None:
+    st.session_state.pop("sched_selected_item_id", None)
+    st.session_state.pop("sched_selected_date", None)
+    st.session_state.pop("sched_dlg_loaded", None)
+
+
+def _sched_parse_date(value: str | None, fallback: date) -> date:
+    try:
+        return date.fromisoformat((value or "")[:10])
+    except ValueError:
+        return fallback
+
+
+def _sched_parse_time(value: str | None) -> time:
+    try:
+        hh, mm = (value or "09:00").split(":")[:2]
+        return time(int(hh), int(mm))
+    except ValueError:
+        return time(9, 0)
+
+
+def _sched_init_dialog_state(
+    *,
+    mode: str,
+    item: dict | None,
+    add_date: date | None,
+    projects: list[dict],
+) -> None:
+    load_key = item["id"] if mode == "edit" and item else f"new:{(add_date or date.today()).isoformat()}"
+    if st.session_state.get("sched_dlg_loaded") == load_key:
+        return
+    if mode == "edit" and item:
+        time_str, base_title = chip_time_and_title(item.get("title"), item.get("note"))
+        st.session_state.sched_dlg_title = base_title
+        st.session_state.sched_dlg_note = item.get("note") or ""
+        st.session_state.sched_dlg_all_day = time_str is None
+        st.session_state.sched_dlg_time = _sched_parse_time(time_str)
+        st.session_state.sched_dlg_date = _sched_parse_date(item.get("date"), date.today())
+        st.session_state.sched_dlg_type = normalize_event_type(item.get("event_type"))
+        st.session_state.sched_dlg_status = normalize_status(item.get("status"))
+        st.session_state.sched_dlg_project = item.get("project_id") or projects[0]["project_id"]
+    else:
+        st.session_state.sched_dlg_title = ""
+        st.session_state.sched_dlg_note = ""
+        st.session_state.sched_dlg_all_day = True
+        st.session_state.sched_dlg_time = time(9, 0)
+        st.session_state.sched_dlg_date = add_date or date.today()
+        st.session_state.sched_dlg_type = "task"
+        st.session_state.sched_dlg_status = "planned"
+        st.session_state.sched_dlg_project = projects[0]["project_id"]
+    st.session_state.sched_dlg_range = False
+    st.session_state.sched_dlg_loaded = load_key
+
+
+def _sched_composed_title() -> str:
+    title = (st.session_state.get("sched_dlg_title") or "").strip()
+    if not title:
+        return ""
+    if st.session_state.get("sched_dlg_all_day", True):
+        return title
+    tval = st.session_state.get("sched_dlg_time") or time(9, 0)
+    return f"{tval.strftime('%H:%M')} {title}"
+
+
+def _schedule_task_form(
+    *,
+    mode: str,
+    item: dict | None,
+    add_date: date | None,
+    projects: list[dict],
+    project_labels: list[str],
+    project_map: dict[str, dict],
+) -> None:
+    _sched_init_dialog_state(mode=mode, item=item, add_date=add_date, projects=projects)
+    project_ids = [p["project_id"] for p in projects]
+    if st.session_state.sched_dlg_project not in project_ids:
+        st.session_state.sched_dlg_project = project_ids[0]
+    left, right = st.columns([1.15, 0.85], gap="large")
+
+    with left:
+        st.markdown('<div class="rm-dlg-kicker">업무</div>', unsafe_allow_html=True)
+        st.text_input("제목 *", key="sched_dlg_title")
+        st.text_area("설명", key="sched_dlg_note", height=92)
+
+        t1, t2 = st.columns(2)
+        with t1:
+            on_cls = "on" if st.session_state.get("sched_dlg_all_day", True) else ""
+            st.markdown(
+                f'<span class="rm-dlg-toggle-mark {on_cls}"></span>'
+                '<p class="rm-dlg-toggle-title">종일</p>'
+                '<p class="rm-dlg-toggle-sub">시각 없이 날짜만</p>',
+                unsafe_allow_html=True,
+            )
+            st.toggle("종일", key="sched_dlg_all_day", label_visibility="collapsed")
+        with t2:
+            st.markdown(
+                '<span class="rm-dlg-toggle-mark"></span>'
+                '<p class="rm-dlg-toggle-title">기간</p>'
+                '<p class="rm-dlg-toggle-sub">시작 · 종료</p>',
+                unsafe_allow_html=True,
+            )
+            st.toggle(
+                "기간",
+                key="sched_dlg_range",
+                label_visibility="collapsed",
+                disabled=True,
+                help="기간(시작~종료)은 아직 지원하지 않습니다.",
+            )
+
+        date_label = "종료 · 마감일 *"
+        st.date_input(date_label, key="sched_dlg_date", format="YYYY-MM-DD")
+        if not st.session_state.get("sched_dlg_all_day", True):
+            st.time_input("종료 시각", key="sched_dlg_time", step=60)
+
+        s1, s2 = st.columns(2)
+        with s1:
+            st.selectbox(
+                "유형",
+                list(EVENT_TYPES),
+                format_func=lambda x: EVENT_TYPE_LABELS[x],
+                key="sched_dlg_type",
+            )
+        with s2:
+            st.selectbox(
+                "상태",
+                list(STATUSES),
+                format_func=lambda x: STATUS_LABELS[x],
+                key="sched_dlg_status",
+            )
+        st.selectbox(
+            "과제",
+            project_ids,
+            format_func=lambda pid: f"{pid} · {(project_map.get(pid) or {}).get('title') or pid}",
+            key="sched_dlg_project",
+        )
+        st.markdown(
+            '<div class="rm-dlg-repeat">🔄 반복 <span>준비 중</span></div>',
+            unsafe_allow_html=True,
+        )
+
+    with right:
+        st.markdown(
+            '<span class="rm-dlg-notify-mark"></span><div class="rm-dlg-kicker">알림</div>',
+            unsafe_allow_html=True,
+        )
+        st.checkbox("기본 (D-3, D-1, 당일)", value=True, disabled=True)
+        st.caption("시작이 있으면 시작 기준, 없으면 마감 기준으로 매 오전 7시에 알립니다.")
+        st.caption("알림 발송은 아직 지원하지 않습니다.")
+        st.markdown("추가 알림")
+        n1, n2, n3, n4 = st.columns([1, 1, 1, 1.1])
+        n1.number_input("일", min_value=0, value=0, disabled=True, label_visibility="collapsed")
+        n2.number_input("시간", min_value=0, value=0, disabled=True, label_visibility="collapsed")
+        n3.number_input("분", min_value=0, value=0, disabled=True, label_visibility="collapsed")
+        n4.button("추가", disabled=True, use_container_width=True)
+        st.caption("일 / 시간 / 분 전")
+        if mode == "edit":
+            st.markdown("예약된 알림")
+            st.caption("예약된 알림이 없습니다.")
+
+    st.markdown("")
+    if mode == "edit":
+        assert item is not None
+        item_id = item["id"]
+        b1, b2, _sp, b3, b4 = st.columns([1.15, 1.15, 1.4, 0.85, 0.85])
+        with b1:
+            st.markdown('<span class="rm-dlg-btn complete"></span>', unsafe_allow_html=True)
+            if st.button("✓ 업무 완료", key="sched_dlg_complete", use_container_width=True):
+                repo.update_schedule_item(item_id, status="done")
+                _sched_clear_selection()
+                st.rerun()
+        with b2:
+            st.markdown('<span class="rm-dlg-btn delete"></span>', unsafe_allow_html=True)
+            if st.button("업무 삭제", key="sched_dlg_delete", use_container_width=True):
+                repo.delete_schedule_item(item_id)
+                _sched_clear_selection()
+                st.rerun()
+        with b3:
+            if st.button("닫기", key="sched_dlg_close", use_container_width=True):
+                _sched_clear_selection()
+                st.rerun()
+        with b4:
+            if st.button("저장", key="sched_dlg_save", type="primary", use_container_width=True):
+                title = _sched_composed_title()
+                if not title:
+                    st.warning("제목을 입력하세요.")
+                else:
+                    repo.update_schedule_item(
+                        item_id,
+                        title=title,
+                        date=st.session_state.sched_dlg_date.isoformat(),
+                        event_type=normalize_event_type(st.session_state.sched_dlg_type),
+                        status=normalize_status(st.session_state.sched_dlg_status),
+                        project_id=st.session_state.sched_dlg_project,
+                        note=(st.session_state.sched_dlg_note or "").strip(),
+                    )
+                    _sched_clear_selection()
+                    st.rerun()
+    else:
+        _sp, b3, b4 = st.columns([3.7, 0.85, 0.85])
+        with b3:
+            if st.button("닫기", key="sched_dlg_close_add", use_container_width=True):
+                _sched_clear_selection()
+                st.rerun()
+        with b4:
+            if st.button("등록", key="sched_dlg_create", type="primary", use_container_width=True):
+                title = _sched_composed_title()
+                if not title:
+                    st.warning("제목을 입력하세요.")
+                else:
+                    repo.add_schedule_item(
+                        project_id=st.session_state.sched_dlg_project,
+                        title=title,
+                        event_type=normalize_event_type(st.session_state.sched_dlg_type),
+                        date=st.session_state.sched_dlg_date.isoformat(),
+                        status=normalize_status(st.session_state.sched_dlg_status),
+                        note=(st.session_state.sched_dlg_note or "").strip(),
+                    )
+                    _sched_clear_selection()
+                    st.rerun()
+
+
+@st.dialog("업무 수정", width="large", on_dismiss=_sched_clear_selection)
+def _schedule_edit_dialog(
+    item: dict,
+    projects: list[dict],
+    project_labels: list[str],
+    project_map: dict[str, dict],
+) -> None:
+    _schedule_task_form(
+        mode="edit",
+        item=item,
+        add_date=None,
+        projects=projects,
+        project_labels=project_labels,
+        project_map=project_map,
+    )
+
+
+@st.dialog("일정 추가", width="large", on_dismiss=_sched_clear_selection)
+def _schedule_add_dialog(
+    add_date: date,
+    projects: list[dict],
+    project_labels: list[str],
+    project_map: dict[str, dict],
+) -> None:
+    _schedule_task_form(
+        mode="add",
+        item=None,
+        add_date=add_date,
+        projects=projects,
+        project_labels=project_labels,
+        project_map=project_map,
+    )
 
 
 def main() -> None:
@@ -2802,7 +3131,7 @@ def _render_proposal_review(findings: list) -> None:
 def _schedule_panel() -> None:
     from datetime import date as date_cls
 
-    st.caption("날짜를 클릭해 일정을 추가하고, 일정 칩을 클릭하면 상세를 볼 수 있습니다.")
+    st.caption("날짜를 클릭하면 일정을 추가하고, 일정 칩을 클릭하면 상세가 팝업으로 열립니다.")
 
     with st.expander("과제 등록·수정", expanded=False):
         pid = st.text_input("과제 ID", key="sched_pid")
@@ -2935,154 +3264,13 @@ def _schedule_panel() -> None:
         selected_item = repo.get_schedule_item(selected_item_id)
 
     if selected_item:
-        iid = selected_item["id"]
-        pid = selected_item.get("project_id") or ""
-        pname = (project_map.get(pid) or {}).get("title") or pid
-        st.markdown("---")
-        st.markdown(
-            f"### {selected_item.get('date')} · "
-            f"{EVENT_TYPE_MARK.get(normalize_event_type(selected_item.get('event_type')), '·')} "
-            f"{selected_item.get('title')}"
-        )
-        st.caption(
-            f"{event_type_label(selected_item.get('event_type'))} · "
-            f"{status_label(selected_item.get('status'))} · `{pname}`"
-        )
-        note = (selected_item.get("note") or "").strip()
-        if note:
-            st.markdown(f"**메모**  \n{note}")
-
-        with st.expander("일정 수정", expanded=True):
-            e1, e2 = st.columns(2)
-            new_title = e1.text_input(
-                "제목", value=selected_item.get("title") or "", key=f"sched_t_{iid}"
-            )
-            new_date = e2.text_input(
-                "날짜 (YYYY-MM-DD)", value=selected_item.get("date") or "", key=f"sched_d_{iid}"
-            )
-            e3, e4, e5 = st.columns(3)
-            type_idx = list(EVENT_TYPES).index(
-                normalize_event_type(selected_item.get("event_type"))
-            )
-            status_idx = list(STATUSES).index(normalize_status(selected_item.get("status")))
-            new_type = e3.selectbox(
-                "유형",
-                list(EVENT_TYPES),
-                index=type_idx,
-                format_func=lambda x: EVENT_TYPE_LABELS[x],
-                key=f"sched_ty_{iid}",
-            )
-            new_status = e4.selectbox(
-                "상태",
-                list(STATUSES),
-                index=status_idx,
-                format_func=lambda x: STATUS_LABELS[x],
-                key=f"sched_st_{iid}",
-            )
-            cur_pid = selected_item.get("project_id") or ""
-            try:
-                proj_idx = next(
-                    i for i, p in enumerate(projects) if p["project_id"] == cur_pid
-                )
-            except StopIteration:
-                proj_idx = 0
-            new_proj = e5.selectbox(
-                "과제",
-                project_labels,
-                index=proj_idx,
-                key=f"sched_p_{iid}",
-            )
-            new_note = st.text_area(
-                "메모",
-                value=selected_item.get("note") or "",
-                key=f"sched_n_{iid}",
-                height=68,
-            )
-            u1, u2, u3 = st.columns(3)
-            if u1.button("저장", key=f"sched_save_{iid}", type="primary"):
-                new_pid = projects[project_labels.index(new_proj)]["project_id"]
-                repo.update_schedule_item(
-                    iid,
-                    title=(new_title or "").strip() or selected_item.get("title"),
-                    date=(new_date or "").strip() or selected_item.get("date"),
-                    event_type=normalize_event_type(new_type),
-                    status=normalize_status(new_status),
-                    project_id=new_pid,
-                    note=(new_note or "").strip(),
-                )
-                st.success("저장됨")
-                st.rerun()
-            if u2.button("삭제", key=f"sched_del_{iid}"):
-                repo.delete_schedule_item(iid)
-                st.session_state.pop("sched_selected_item_id", None)
-                st.session_state.pop("sched_selected_date", None)
-                st.success("삭제됨")
-                st.rerun()
-            if u3.button("닫기", key=f"sched_close_{iid}"):
-                st.session_state.pop("sched_selected_item_id", None)
-                st.session_state.pop("sched_selected_date", None)
-                st.rerun()
-
+        _schedule_edit_dialog(selected_item, projects, project_labels, project_map)
     elif selected_date:
         try:
             add_day = date_cls.fromisoformat(selected_date)
         except ValueError:
             add_day = today
-        st.markdown("---")
-        st.markdown(f"### {selected_date} · 일정 추가")
-        with st.form("sched_add_form", clear_on_submit=True):
-            a1, a2 = st.columns(2)
-            add_proj = a1.selectbox("과제", project_labels, key="sched_add_proj")
-            add_title = a2.text_input("제목", key="sched_add_title")
-            b1, b2 = st.columns(2)
-            add_type = b1.selectbox(
-                "유형",
-                list(EVENT_TYPES),
-                format_func=lambda x: EVENT_TYPE_LABELS[x],
-                key="sched_add_type",
-            )
-            add_status = b2.selectbox(
-                "상태",
-                list(STATUSES),
-                format_func=lambda x: STATUS_LABELS[x],
-                key="sched_add_status",
-            )
-            add_note = st.text_area("메모", key="sched_add_note", height=68)
-            c1, c2 = st.columns(2)
-            submitted = c1.form_submit_button("일정 등록", type="primary")
-            if c2.form_submit_button("닫기"):
-                st.session_state.pop("sched_selected_date", None)
-                st.rerun()
-            if submitted:
-                if not (add_title or "").strip():
-                    st.warning("제목을 입력하세요.")
-                else:
-                    add_pid = projects[project_labels.index(add_proj)]["project_id"]
-                    sid = repo.add_schedule_item(
-                        project_id=add_pid,
-                        title=add_title.strip(),
-                        event_type=normalize_event_type(add_type),
-                        date=add_day.isoformat(),
-                        status=normalize_status(add_status),
-                        note=(add_note or "").strip(),
-                    )
-                    st.session_state.sched_selected_item_id = sid
-                    st.session_state.sched_selected_date = add_day.isoformat()
-                    st.success("등록됨")
-                    st.rerun()
-
-        day_items = by_day.get(selected_date) or []
-        if day_items:
-            st.markdown(f"**{selected_date} 일정**")
-            for it in day_items:
-                mark = EVENT_TYPE_MARK.get(normalize_event_type(it.get("event_type")), "·")
-                pid = it.get("project_id") or ""
-                pname = (project_map.get(pid) or {}).get("title") or pid
-                st.markdown(
-                    f"- {mark} **{it.get('title')}** · "
-                    f"{event_type_label(it.get('event_type'))} · "
-                    f"{status_label(it.get('status'))} · `{pname}`"
-                )
+        _schedule_add_dialog(add_day, projects, project_labels, project_map)
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("이번 달 일정", len(month_items))
