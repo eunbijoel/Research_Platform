@@ -101,14 +101,12 @@ PAGE_RESEARCH_NOTE = "Research Note"
 
 MAIN_NAV = [
     (PAGE_HOME, "🏠 홈"),
+    (PAGE_SCHEDULE, "📅 일정 관리"),
     (PAGE_LIBRARY, "📚 라이브러리"),
     (PAGE_CHAT, "💬 채팅"),
     (PAGE_RESEARCH_NOTE, "📝 연구노트"),
     (PAGE_PROPOSAL, "🖊️ 제안서"),
     (PAGE_SIMILARITY, "🔍 유사도 검토"),
-]
-FUTURE_NAV = [
-    (PAGE_SCHEDULE, "📅 일정 관리"),
 ]
 
 
@@ -252,18 +250,6 @@ def main() -> None:
                 _go(page_id)
 
         st.markdown("---")
-        st.caption("Future Capabilities")
-        for page_id, label in FUTURE_NAV:
-            active = st.session_state.page == page_id
-            if st.button(
-                label,
-                key=f"nav-future-{page_id}",
-                use_container_width=True,
-                type="primary" if active else "secondary",
-            ):
-                _go(page_id)
-
-        st.markdown("---")
         st.caption("System")
         stats = _kb_stats()
         st.write(f"Documents: **{stats['doc_count']}**")
@@ -315,10 +301,8 @@ def main() -> None:
         )
         _similarity_panel()
     elif page == PAGE_SCHEDULE:
-        _roadmap_banner(
-            "일정 관리",
-            "과제별 회의·제출·작업·마일스톤을 월간 캘린더로 관리합니다.",
-        )
+        st.title("일정 관리")
+        st.caption("과제별 회의·제출·작업·마일스톤을 월간 캘린더로 관리합니다.")
         _schedule_panel()
     else:
         _home_page()
