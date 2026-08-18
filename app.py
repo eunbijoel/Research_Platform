@@ -253,8 +253,8 @@ iframe[title="schedule_calendar"] {
   width: 100% !important;
 }
 div[data-testid="stDialog"] div[role="dialog"] {
-  width: min(72rem, 96vw) !important;
-  max-width: 72rem !important;
+  width: min(40rem, 96vw) !important;
+  max-width: 40rem !important;
 }
 div[data-testid="stDialog"] .rm-dlg-kicker {
   font-size: 0.8rem;
@@ -283,12 +283,6 @@ div[data-testid="stDialog"] .rm-dlg-toggle-sub {
   color: #64748b;
   margin: 0.1rem 0 0.25rem;
 }
-div[data-testid="stDialog"] div[data-testid="column"]:has(.rm-dlg-notify-mark) {
-  border: 1px solid #e2e8f0;
-  border-radius: 0.75rem;
-  background: #f8fafc;
-  padding: 0.9rem 1rem 1rem !important;
-}
 div[data-testid="stDialog"] .rm-dlg-repeat {
   display: flex;
   align-items: center;
@@ -314,19 +308,6 @@ div[data-testid="stDialog"] .element-container:has(.rm-dlg-btn.delete) + .elemen
   color: #dc2626 !important;
   background: #ffffff !important;
   border: 1px solid #fca5a5 !important;
-}
-div[data-testid="stDialog"] .rm-dlg-sent {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.45rem 0.15rem;
-  font-size: 0.85rem;
-  color: #334155;
-}
-div[data-testid="stDialog"] .rm-dlg-sent b {
-  color: #16a34a;
-  font-weight: 700;
-  font-size: 0.78rem;
 }
 </style>
         """,
@@ -432,87 +413,66 @@ def _schedule_task_form(
     project_ids = [p["project_id"] for p in projects]
     if st.session_state.sched_dlg_project not in project_ids:
         st.session_state.sched_dlg_project = project_ids[0]
-    left, right = st.columns([1.15, 0.85], gap="large")
 
-    with left:
-        st.markdown('<div class="rm-dlg-kicker">업무</div>', unsafe_allow_html=True)
-        st.text_input("제목 *", key="sched_dlg_title")
-        st.text_area("설명", key="sched_dlg_note", height=92)
+    st.markdown('<div class="rm-dlg-kicker">업무</div>', unsafe_allow_html=True)
+    st.text_input("제목 *", key="sched_dlg_title")
+    st.text_area("설명", key="sched_dlg_note", height=92)
 
-        t1, t2 = st.columns(2)
-        with t1:
-            on_cls = "on" if st.session_state.get("sched_dlg_all_day", True) else ""
-            st.markdown(
-                f'<span class="rm-dlg-toggle-mark {on_cls}"></span>'
-                '<p class="rm-dlg-toggle-title">종일</p>'
-                '<p class="rm-dlg-toggle-sub">시각 없이 날짜만</p>',
-                unsafe_allow_html=True,
-            )
-            st.toggle("종일", key="sched_dlg_all_day", label_visibility="collapsed")
-        with t2:
-            st.markdown(
-                '<span class="rm-dlg-toggle-mark"></span>'
-                '<p class="rm-dlg-toggle-title">기간</p>'
-                '<p class="rm-dlg-toggle-sub">시작 · 종료</p>',
-                unsafe_allow_html=True,
-            )
-            st.toggle(
-                "기간",
-                key="sched_dlg_range",
-                label_visibility="collapsed",
-                disabled=True,
-                help="기간(시작~종료)은 아직 지원하지 않습니다.",
-            )
+    t1, t2 = st.columns(2)
+    with t1:
+        on_cls = "on" if st.session_state.get("sched_dlg_all_day", True) else ""
+        st.markdown(
+            f'<span class="rm-dlg-toggle-mark {on_cls}"></span>'
+            '<p class="rm-dlg-toggle-title">종일</p>'
+            '<p class="rm-dlg-toggle-sub">시각 없이 날짜만</p>',
+            unsafe_allow_html=True,
+        )
+        st.toggle("종일", key="sched_dlg_all_day", label_visibility="collapsed")
+    with t2:
+        st.markdown(
+            '<span class="rm-dlg-toggle-mark"></span>'
+            '<p class="rm-dlg-toggle-title">기간</p>'
+            '<p class="rm-dlg-toggle-sub">시작 · 종료</p>',
+            unsafe_allow_html=True,
+        )
+        st.toggle(
+            "기간",
+            key="sched_dlg_range",
+            label_visibility="collapsed",
+            disabled=True,
+            help="기간(시작~종료)은 아직 지원하지 않습니다.",
+        )
 
-        date_label = "종료 · 마감일 *"
-        st.date_input(date_label, key="sched_dlg_date", format="YYYY-MM-DD")
-        if not st.session_state.get("sched_dlg_all_day", True):
-            st.time_input("종료 시각", key="sched_dlg_time", step=60)
+    date_label = "종료 · 마감일 *"
+    st.date_input(date_label, key="sched_dlg_date", format="YYYY-MM-DD")
+    if not st.session_state.get("sched_dlg_all_day", True):
+        st.time_input("종료 시각", key="sched_dlg_time", step=60)
 
-        s1, s2 = st.columns(2)
-        with s1:
-            st.selectbox(
-                "유형",
-                list(EVENT_TYPES),
-                format_func=lambda x: EVENT_TYPE_LABELS[x],
-                key="sched_dlg_type",
-            )
-        with s2:
-            st.selectbox(
-                "상태",
-                list(STATUSES),
-                format_func=lambda x: STATUS_LABELS[x],
-                key="sched_dlg_status",
-            )
+    s1, s2 = st.columns(2)
+    with s1:
         st.selectbox(
-            "과제",
-            project_ids,
-            format_func=lambda pid: f"{pid} · {(project_map.get(pid) or {}).get('title') or pid}",
-            key="sched_dlg_project",
+            "유형",
+            list(EVENT_TYPES),
+            format_func=lambda x: EVENT_TYPE_LABELS[x],
+            key="sched_dlg_type",
         )
-        st.markdown(
-            '<div class="rm-dlg-repeat">🔄 반복 <span>준비 중</span></div>',
-            unsafe_allow_html=True,
+    with s2:
+        st.selectbox(
+            "상태",
+            list(STATUSES),
+            format_func=lambda x: STATUS_LABELS[x],
+            key="sched_dlg_status",
         )
-
-    with right:
-        st.markdown(
-            '<span class="rm-dlg-notify-mark"></span><div class="rm-dlg-kicker">알림</div>',
-            unsafe_allow_html=True,
-        )
-        st.checkbox("기본 (D-3, D-1, 당일)", value=True, disabled=True)
-        st.caption("시작이 있으면 시작 기준, 없으면 마감 기준으로 매 오전 7시에 알립니다.")
-        st.caption("알림 발송은 아직 지원하지 않습니다.")
-        st.markdown("추가 알림")
-        n1, n2, n3, n4 = st.columns([1, 1, 1, 1.1])
-        n1.number_input("일", min_value=0, value=0, disabled=True, label_visibility="collapsed")
-        n2.number_input("시간", min_value=0, value=0, disabled=True, label_visibility="collapsed")
-        n3.number_input("분", min_value=0, value=0, disabled=True, label_visibility="collapsed")
-        n4.button("추가", disabled=True, use_container_width=True)
-        st.caption("일 / 시간 / 분 전")
-        if mode == "edit":
-            st.markdown("예약된 알림")
-            st.caption("예약된 알림이 없습니다.")
+    st.selectbox(
+        "과제",
+        project_ids,
+        format_func=lambda pid: f"{pid} · {(project_map.get(pid) or {}).get('title') or pid}",
+        key="sched_dlg_project",
+    )
+    st.markdown(
+        '<div class="rm-dlg-repeat">🔄 반복 <span>준비 중</span></div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown("")
     if mode == "edit":
@@ -576,7 +536,7 @@ def _schedule_task_form(
                     st.rerun()
 
 
-@st.dialog("업무 수정", width="large", on_dismiss=_sched_clear_selection)
+@st.dialog("업무 수정", width="medium", on_dismiss=_sched_clear_selection)
 def _schedule_edit_dialog(
     item: dict,
     projects: list[dict],
@@ -593,7 +553,7 @@ def _schedule_edit_dialog(
     )
 
 
-@st.dialog("일정 추가", width="large", on_dismiss=_sched_clear_selection)
+@st.dialog("일정 추가", width="medium", on_dismiss=_sched_clear_selection)
 def _schedule_add_dialog(
     add_date: date,
     projects: list[dict],
