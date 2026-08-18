@@ -2965,11 +2965,6 @@ def _schedule_panel() -> None:
 
     project_map = {p["project_id"]: p for p in projects}
     project_labels = [f"{p['project_id']} · {p.get('title') or ''}" for p in projects]
-    project_options = ["(전체)"] + [
-        f"{p['project_id']} · {p.get('title') or ''} (일정 {p.get('schedule_count', 0)})"
-        for p in projects
-    ]
-    project_ids = [""] + [p["project_id"] for p in projects]
 
     today = date_cls.today()
     if "sched_year" not in st.session_state:
@@ -2986,24 +2981,16 @@ def _schedule_panel() -> None:
 
     tool_l, tool_r = st.columns([4, 1])
     with tool_l:
-        filt1, filt2 = st.columns(2)
-        with filt1:
-            st.caption("과제")
-            proj_choice = st.selectbox(
-                "과제 필터", project_options, key="sched_proj_filter", label_visibility="collapsed"
+        st.caption("상태")
+        status_options = ["(전체)"] + [STATUS_LABELS[s] for s in STATUSES]
+        status_choice = st.selectbox(
+            "상태 필터", status_options, key="sched_status_filter", label_visibility="collapsed"
+        )
+        filter_status = None
+        if status_choice != "(전체)":
+            filter_status = next(
+                s for s in STATUSES if STATUS_LABELS[s] == status_choice
             )
-            filter_project_id = project_ids[project_options.index(proj_choice)] or None
-        with filt2:
-            st.caption("상태")
-            status_options = ["(전체)"] + [STATUS_LABELS[s] for s in STATUSES]
-            status_choice = st.selectbox(
-                "상태 필터", status_options, key="sched_status_filter", label_visibility="collapsed"
-            )
-            filter_status = None
-            if status_choice != "(전체)":
-                filter_status = next(
-                    s for s in STATUSES if STATUS_LABELS[s] == status_choice
-                )
     with tool_r:
         if st.button("오늘", key="sched_today", use_container_width=True):
             st.session_state.sched_year = today.year
@@ -3035,7 +3022,7 @@ def _schedule_panel() -> None:
             st.rerun()
 
     items = repo.list_schedule_items(
-        project_id=filter_project_id,
+        project_id=None,
         status=filter_status,
         date_from=grid_from,
         date_to=grid_to,
