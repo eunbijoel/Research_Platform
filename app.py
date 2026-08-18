@@ -2593,7 +2593,7 @@ def _schedule_panel() -> None:
     from datetime import date as date_cls
 
     st.subheader("월간 캘린더")
-    st.caption("과제에 연결된 일정만 등록합니다. (회의 / 제출 / 작업 / 마일스톤)")
+    st.caption("날짜를 클릭해 일정을 추가하고, 일정을 클릭하면 상세를 볼 수 있습니다.")
 
     with st.expander("과제 등록·수정", expanded=False):
         pid = st.text_input("과제 ID", key="sched_pid")
@@ -2622,6 +2622,7 @@ def _schedule_panel() -> None:
         return
 
     project_map = {p["project_id"]: p for p in projects}
+    project_labels = [f"{p['project_id']} · {p.get('title') or ''}" for p in projects]
     project_options = ["(전체)"] + [
         f"{p['project_id']} · {p.get('title') or ''} (일정 {p.get('schedule_count', 0)})"
         for p in projects
@@ -2678,6 +2679,10 @@ def _schedule_panel() -> None:
         status=filter_status,
     )
     by_day = items_by_date(items)
+    items_by_id = {it["id"]: it for it in items}
+
+    selected_item_id = st.session_state.get("sched_selected_item_id")
+    selected_date = st.session_state.get("sched_selected_date")
 
     weekday_labels = ["월", "화", "수", "목", "금", "토", "일"]
     header_cols = st.columns(7)
@@ -2693,117 +2698,73 @@ def _schedule_panel() -> None:
             with cols[day_i]:
                 if day is None:
                     st.markdown(
-                        "<div style='min-height:5.5rem;opacity:0.15;'>&nbsp;</div>",
+                        "<div style='min-height:6rem;opacity:0.15;'>&nbsp;</div>",
                         unsafe_allow_html=True,
                     )
                     continue
-                key = day.isoformat()
-                day_items = by_day.get(key) or []
-                is_today = day == today
-                border = "#2563eb" if is_today else "#e5e7eb"
-                bg = "#eff6ff" if is_today else "#fafafa"
-                lines = [f"<strong>{day.day}</strong>"]
-                for it in day_items[:4]:
-                    mark = EVENT_TYPE_MARK.get(normalize_event_type(it.get("event_type")), "·")
-                    title_short = (it.get("title") or "")[:14]
-                    lines.append(f"{mark} {title_short}")
-                if len(day_items) > 4:
-                    lines.append(f"+{len(day_items) - 4}")
-                body = "<br/>".join(lines)
-                st.markdown(
-                    f"<div style='min-height:5.5rem;padding:0.35rem;border:1px solid {border};"
-                    f"border-radius:6px;background:{bg};font-size:0.78rem;line-height:1.35;'>"
-                    f"{body}</div>",
-                    unsafe_allow_html=True,
-                )
-                if day_items and st.button(
-                    "보기",
+                date_key = day.isoformat()
+                day_items = by_day.get(date_key) or []
+                day_selected = selected_date == date_key and not selected_item_id
+                if st.button(
+                    str(day.day),
                     key=f"sched_day_{week_i}_{day_i}",
                     use_container_width=True,
+                    type="primary" if day_selected else "secondary",
                 ):
-                    st.session_state.sched_selected_date = key
+                    st.session_state.sched_selected_date = date_key
+                    st.session_state.pop("sched_selected_item_id", None)
+                    st.rerun()
+                for it in day_items[:4]:
+                    mark = EVENT_TYPE_MARK.get(normalize_event_type(it.get("event_type")), "·")
+                    title_short = (it.get("title") or "")[:12]
+                    item_selected = selected_item_id == it["id"]
+                    if st.button(
+                        f"{mark} {title_short}",
+                        key=f"sched_item_{it['id']}",
+                        use_container_width=True,
+                        type="primary" if item_selected else "secondary",
+                    ):
+                        st.session_state.sched_selected_item_id = it["id"]
+                        st.session_state.sched_selected_date = date_key
+                        st.rerun()
+                if len(day_items) > 4:
+                    st.caption(f"+{len(day_items) - 4}개")
 
-    selected = st.session_state.get("sched_selected_date")
-    if selected and selected in by_day:
-        st.markdown(f"### {selected} 일정")
-        for it in by_day[selected]:
-            pid = it.get("project_id") or ""
-            pname = (project_map.get(pid) or {}).get("title") or pid
-            st.markdown(
-                f"- {EVENT_TYPE_MARK.get(normalize_event_type(it.get('event_type')), '·')} "
-                f"**{it.get('title')}** · {event_type_label(it.get('event_type'))} · "
-                f"{status_label(it.get('status'))} · `{pname}`"
-            )
-            note = (it.get("note") or "").strip()
-            if note:
-                st.caption(note)
+    selected_item = items_by_id.get(selected_item_id or "")
+    if selected_item is None and selected_item_id:
+        selected_item = repo.get_schedule_item(selected_item_id)
 
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("이번 달 일정", len(items))
-    m2.metric("회의", sum(1 for i in items if normalize_event_type(i.get("event_type")) == "meeting"))
-    m3.metric("제출", sum(1 for i in items if normalize_event_type(i.get("event_type")) == "submission"))
-    m4.metric(
-        "완료",
-        sum(1 for i in items if normalize_status(i.get("status")) == "done"),
-    )
-
-    st.markdown("### 일정 추가")
-    with st.form("sched_add_form", clear_on_submit=True):
-        a1, a2 = st.columns(2)
-        add_proj_labels = [
-            f"{p['project_id']} · {p.get('title') or ''}" for p in projects
-        ]
-        add_proj = a1.selectbox("과제", add_proj_labels, key="sched_add_proj")
-        add_title = a2.text_input("제목", key="sched_add_title")
-        b1, b2, b3 = st.columns(3)
-        add_date = b1.date_input("날짜", value=today, key="sched_add_date")
-        add_type = b2.selectbox(
-            "유형",
-            list(EVENT_TYPES),
-            format_func=lambda x: EVENT_TYPE_LABELS[x],
-            key="sched_add_type",
+    if selected_item:
+        iid = selected_item["id"]
+        pid = selected_item.get("project_id") or ""
+        pname = (project_map.get(pid) or {}).get("title") or pid
+        st.markdown("---")
+        st.markdown(
+            f"### {selected_item.get('date')} · "
+            f"{EVENT_TYPE_MARK.get(normalize_event_type(selected_item.get('event_type')), '·')} "
+            f"{selected_item.get('title')}"
         )
-        add_status = b3.selectbox(
-            "상태",
-            list(STATUSES),
-            format_func=lambda x: STATUS_LABELS[x],
-            key="sched_add_status",
+        st.caption(
+            f"{event_type_label(selected_item.get('event_type'))} · "
+            f"{status_label(selected_item.get('status'))} · `{pname}`"
         )
-        add_note = st.text_area("메모", key="sched_add_note", height=68)
-        submitted = st.form_submit_button("일정 등록", type="primary")
-        if submitted:
-            if not (add_title or "").strip():
-                st.warning("제목을 입력하세요.")
-            else:
-                add_pid = projects[add_proj_labels.index(add_proj)]["project_id"]
-                sid = repo.add_schedule_item(
-                    project_id=add_pid,
-                    title=add_title.strip(),
-                    event_type=normalize_event_type(add_type),
-                    date=add_date.isoformat(),
-                    status=normalize_status(add_status),
-                    note=(add_note or "").strip(),
-                )
-                st.success(f"등록됨 ({sid[:8]})")
-                st.rerun()
+        note = (selected_item.get("note") or "").strip()
+        if note:
+            st.markdown(f"**메모**  \n{note}")
 
-    st.markdown("### 일정 목록 · 수정/삭제")
-    if not items:
-        st.write("이번 달에 표시할 일정이 없습니다.")
-        return
-
-    for it in items:
-        iid = it["id"]
-        with st.expander(
-            f"{it.get('date')} · {EVENT_TYPE_MARK.get(normalize_event_type(it.get('event_type')), '·')} "
-            f"{it.get('title')} · {status_label(it.get('status'))}"
-        ):
+        with st.expander("일정 수정", expanded=True):
             e1, e2 = st.columns(2)
-            new_title = e1.text_input("제목", value=it.get("title") or "", key=f"sched_t_{iid}")
-            new_date = e2.text_input("날짜 (YYYY-MM-DD)", value=it.get("date") or "", key=f"sched_d_{iid}")
+            new_title = e1.text_input(
+                "제목", value=selected_item.get("title") or "", key=f"sched_t_{iid}"
+            )
+            new_date = e2.text_input(
+                "날짜 (YYYY-MM-DD)", value=selected_item.get("date") or "", key=f"sched_d_{iid}"
+            )
             e3, e4, e5 = st.columns(3)
-            type_idx = list(EVENT_TYPES).index(normalize_event_type(it.get("event_type")))
-            status_idx = list(STATUSES).index(normalize_status(it.get("status")))
+            type_idx = list(EVENT_TYPES).index(
+                normalize_event_type(selected_item.get("event_type"))
+            )
+            status_idx = list(STATUSES).index(normalize_status(selected_item.get("status")))
             new_type = e3.selectbox(
                 "유형",
                 list(EVENT_TYPES),
@@ -2818,8 +2779,7 @@ def _schedule_panel() -> None:
                 format_func=lambda x: STATUS_LABELS[x],
                 key=f"sched_st_{iid}",
             )
-            proj_labels = [f"{p['project_id']} · {p.get('title') or ''}" for p in projects]
-            cur_pid = it.get("project_id") or ""
+            cur_pid = selected_item.get("project_id") or ""
             try:
                 proj_idx = next(
                     i for i, p in enumerate(projects) if p["project_id"] == cur_pid
@@ -2828,23 +2788,23 @@ def _schedule_panel() -> None:
                 proj_idx = 0
             new_proj = e5.selectbox(
                 "과제",
-                proj_labels,
+                project_labels,
                 index=proj_idx,
                 key=f"sched_p_{iid}",
             )
             new_note = st.text_area(
                 "메모",
-                value=it.get("note") or "",
+                value=selected_item.get("note") or "",
                 key=f"sched_n_{iid}",
                 height=68,
             )
-            u1, u2 = st.columns(2)
-            if u1.button("저장", key=f"sched_save_{iid}"):
-                new_pid = projects[proj_labels.index(new_proj)]["project_id"]
+            u1, u2, u3 = st.columns(3)
+            if u1.button("저장", key=f"sched_save_{iid}", type="primary"):
+                new_pid = projects[project_labels.index(new_proj)]["project_id"]
                 repo.update_schedule_item(
                     iid,
-                    title=(new_title or "").strip() or it.get("title"),
-                    date=(new_date or "").strip() or it.get("date"),
+                    title=(new_title or "").strip() or selected_item.get("title"),
+                    date=(new_date or "").strip() or selected_item.get("date"),
                     event_type=normalize_event_type(new_type),
                     status=normalize_status(new_status),
                     project_id=new_pid,
@@ -2854,8 +2814,84 @@ def _schedule_panel() -> None:
                 st.rerun()
             if u2.button("삭제", key=f"sched_del_{iid}"):
                 repo.delete_schedule_item(iid)
+                st.session_state.pop("sched_selected_item_id", None)
+                st.session_state.pop("sched_selected_date", None)
                 st.success("삭제됨")
                 st.rerun()
+            if u3.button("닫기", key=f"sched_close_{iid}"):
+                st.session_state.pop("sched_selected_item_id", None)
+                st.session_state.pop("sched_selected_date", None)
+                st.rerun()
+
+    elif selected_date:
+        try:
+            add_day = date_cls.fromisoformat(selected_date)
+        except ValueError:
+            add_day = today
+        st.markdown("---")
+        st.markdown(f"### {selected_date} · 일정 추가")
+        with st.form("sched_add_form", clear_on_submit=True):
+            a1, a2 = st.columns(2)
+            add_proj = a1.selectbox("과제", project_labels, key="sched_add_proj")
+            add_title = a2.text_input("제목", key="sched_add_title")
+            b1, b2 = st.columns(2)
+            add_type = b1.selectbox(
+                "유형",
+                list(EVENT_TYPES),
+                format_func=lambda x: EVENT_TYPE_LABELS[x],
+                key="sched_add_type",
+            )
+            add_status = b2.selectbox(
+                "상태",
+                list(STATUSES),
+                format_func=lambda x: STATUS_LABELS[x],
+                key="sched_add_status",
+            )
+            add_note = st.text_area("메모", key="sched_add_note", height=68)
+            c1, c2 = st.columns(2)
+            submitted = c1.form_submit_button("일정 등록", type="primary")
+            if c2.form_submit_button("닫기"):
+                st.session_state.pop("sched_selected_date", None)
+                st.rerun()
+            if submitted:
+                if not (add_title or "").strip():
+                    st.warning("제목을 입력하세요.")
+                else:
+                    add_pid = projects[project_labels.index(add_proj)]["project_id"]
+                    sid = repo.add_schedule_item(
+                        project_id=add_pid,
+                        title=add_title.strip(),
+                        event_type=normalize_event_type(add_type),
+                        date=add_day.isoformat(),
+                        status=normalize_status(add_status),
+                        note=(add_note or "").strip(),
+                    )
+                    st.session_state.sched_selected_item_id = sid
+                    st.session_state.sched_selected_date = add_day.isoformat()
+                    st.success("등록됨")
+                    st.rerun()
+
+        day_items = by_day.get(selected_date) or []
+        if day_items:
+            st.markdown(f"**{selected_date} 일정**")
+            for it in day_items:
+                mark = EVENT_TYPE_MARK.get(normalize_event_type(it.get("event_type")), "·")
+                pid = it.get("project_id") or ""
+                pname = (project_map.get(pid) or {}).get("title") or pid
+                st.markdown(
+                    f"- {mark} **{it.get('title')}** · "
+                    f"{event_type_label(it.get('event_type'))} · "
+                    f"{status_label(it.get('status'))} · `{pname}`"
+                )
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("이번 달 일정", len(items))
+    m2.metric("회의", sum(1 for i in items if normalize_event_type(i.get("event_type")) == "meeting"))
+    m3.metric("제출", sum(1 for i in items if normalize_event_type(i.get("event_type")) == "submission"))
+    m4.metric(
+        "완료",
+        sum(1 for i in items if normalize_status(i.get("status")) == "done"),
+    )
 
 
 if __name__ == "__main__":
