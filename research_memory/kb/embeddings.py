@@ -235,14 +235,26 @@ def search_retrieval(
     *,
     top_k: int = 6,
     prefer_vector: bool = True,
+    document_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
     """
     Search Memory. Returns (hits, backend) where backend is
-    hybrid|vector|tfidf|none.
+    hybrid|vector|tfidf|document|none.
 
     When both indexes exist, fuse with RRF (lexical + semantic).
+    When document_id is set, search only within that document's chunks.
     """
     fetch_k = max(top_k * 3, 12)
+    doc_id = (document_id or "").strip()
+    if doc_id:
+        return _search_retrieval_scoped(
+            query,
+            document_id=doc_id,
+            top_k=top_k,
+            fetch_k=fetch_k,
+            prefer_vector=prefer_vector,
+        )
+
     vector_hits: list[dict[str, Any]] = []
     tfidf_hits: list[dict[str, Any]] = []
 
@@ -267,3 +279,110 @@ def search_retrieval(
     if tfidf_hits:
         return tfidf_hits[:top_k], "tfidf"
     return [], "none"
+
+
+def _chunks_for_document(document_id: str) -> list[dict[str, Any]]:
+    doc_id = document_id.strip()
+    if not doc_id:
+        return []
+    for path in (INDEX_PATH, VECTOR_INDEX_PATH):
+        if not path.exists():
+            continue
+        try:
+            chunks = (
+                TfidfIndex.load(path).chunks
+                if path == INDEX_PATH
+                else VectorIndex.load(path).chunks
+            )
+        except Exception:
+            continue
+        scoped = [c for c in chunks if str(c.get("document_id") or "") == doc_id]
+        if scoped:
+            return scoped
+    return []
+
+
+def _search_vector_scoped(
+    index: VectorIndex,
+    query: str,
+    document_id: str,
+    top_k: int,
+) -> list[dict[str, Any]]:
+    if not query.strip() or not index.chunks:
+        return []
+    q = _l2_normalize(embed_query(query, model=index.model))
+    scored: list[tuple[float, int]] = []
+    for i, ch in enumerate(index.chunks):
+        if str(ch.get("document_id") or "") != document_id:
+            continue
+        score = _cosine(q, index.vectors[i])
+        if score > 0:
+            scored.append((score, i))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out: list[dict[str, Any]] = []
+    for score, idx in scored[:top_k]:
+        item = dict(index.chunks[idx])
+        item["score"] = float(score)
+        out.append(item)
+    return out
+
+
+def _search_tfidf_scoped(
+    chunks: list[dict[str, Any]],
+    query: str,
+    top_k: int,
+) -> list[dict[str, Any]]:
+    if not chunks:
+        return []
+    return TfidfIndex().fit(chunks).search(query, top_k=top_k)
+
+
+def _document_chunk_fallback(
+    chunks: list[dict[str, Any]],
+    *,
+    top_k: int,
+) -> list[dict[str, Any]]:
+    ordered = sorted(chunks, key=lambda c: (c.get("chunk_index", 0), c.get("location", "")))
+    out: list[dict[str, Any]] = []
+    for ch in ordered[:top_k]:
+        item = dict(ch)
+        item["score"] = 0.01
+        out.append(item)
+    return out
+
+
+def _search_retrieval_scoped(
+    query: str,
+    *,
+    document_id: str,
+    top_k: int,
+    fetch_k: int,
+    prefer_vector: bool,
+) -> tuple[list[dict[str, Any]], str]:
+    doc_chunks = _chunks_for_document(document_id)
+    if not doc_chunks:
+        return [], "none"
+
+    vector_hits: list[dict[str, Any]] = []
+    if prefer_vector and VECTOR_INDEX_PATH.exists():
+        try:
+            vector_hits = _search_vector_scoped(
+                VectorIndex.load(),
+                query,
+                document_id,
+                fetch_k,
+            )
+        except EmbeddingError:
+            vector_hits = []
+        except Exception:
+            vector_hits = []
+
+    tfidf_hits = _search_tfidf_scoped(doc_chunks, query, fetch_k)
+
+    if vector_hits and tfidf_hits:
+        return _rrf_fuse([vector_hits, tfidf_hits], top_k=top_k), "hybrid"
+    if vector_hits:
+        return vector_hits[:top_k], "vector"
+    if tfidf_hits:
+        return tfidf_hits[:top_k], "tfidf"
+    return _document_chunk_fallback(doc_chunks, top_k=top_k), "document"

@@ -30,20 +30,34 @@ def answer_question(
     repo: KnowledgeRepository | None = None,
     top_k: int = 6,
     exclude_project_ids: list[str] | None = None,
+    document_id: str | None = None,
 ) -> ChatAnswer:
     repo = repo or KnowledgeRepository()
     excluded = list(exclude_project_ids or [])
     similar_intent = bool(_SIMILAR_INTENT.search(question or ""))
-    if similar_intent and not excluded:
+    if similar_intent and not excluded and not document_id:
         excluded = _resolve_focus_projects(question, repo)
+
+    focus_doc = repo.get_document(document_id) if document_id else None
 
     citations = retrieve(
         question,
         repo=repo,
         top_k=top_k,
         exclude_project_ids=excluded or None,
+        document_id=document_id,
     )
     if not citations:
+        if focus_doc:
+            return ChatAnswer(
+                answer=(
+                    f"`{focus_doc.get('filename')}`에서 검색할 텍스트 조각을 찾지 못했습니다. "
+                    "문서가 ready 상태인지, 추출 텍스트가 있는지 Library에서 확인해 주세요."
+                ),
+                citations=[],
+                refused=True,
+                mode="refused",
+            )
         return ChatAnswer(
             answer="메모리에 근거가 없어 답할 수 없습니다. 관련 문서를 먼저 인제스트하세요.",
             citations=[],
@@ -58,6 +72,7 @@ def answer_question(
                 citations,
                 excluded_projects=excluded,
                 similar_intent=similar_intent,
+                focus_document=focus_doc,
             )
             text = generate_text(prompt)
             if not text.strip():
@@ -115,6 +130,7 @@ def _build_prompt(
     *,
     excluded_projects: list[str] | None = None,
     similar_intent: bool = False,
+    focus_document: dict | None = None,
 ) -> str:
     evidence_blocks = []
     for i, c in enumerate(citations, start=1):
@@ -123,6 +139,14 @@ def _build_prompt(
         )
     evidence = "\n\n".join(evidence_blocks)
     extra = ""
+    if focus_document:
+        title = focus_document.get("title") or focus_document.get("filename") or "선택 문서"
+        extra = (
+            "\n추가 규칙 (선택 문서 집중):\n"
+            f"- Evidence는 사용자가 Library에서 선택한 문서 `{title}`에서만 가져왔습니다.\n"
+            "- 반드시 이 문서 내용만 사용해 답하세요. 다른 문서를 언급하지 마세요.\n"
+            "- Evidence에 내용이 있으면 요약·정리·질문 응답을 수행하세요.\n"
+        )
     if similar_intent or excluded_projects:
         names = ", ".join(excluded_projects) if excluded_projects else "(질문의 대상 과제)"
         extra = (

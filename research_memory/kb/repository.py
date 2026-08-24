@@ -432,12 +432,23 @@ class KnowledgeRepository:
         self.last_index_status = rebuild_retrieval_index(chunks)
         return int(self.last_index_status.get("chunk_count") or 0)
 
-    def search(self, query: str, top_k: int = 6) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        top_k: int = 6,
+        *,
+        document_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         if not query.strip():
             return []
         if not VECTOR_INDEX_PATH.exists() and not INDEX_PATH.exists():
             self.rebuild_index()
-        hits, backend = search_retrieval(query, top_k=top_k, prefer_vector=True)
+        hits, backend = search_retrieval(
+            query,
+            top_k=top_k,
+            prefer_vector=True,
+            document_id=document_id,
+        )
         for h in hits:
             h["retrieval_backend"] = backend
         return hits

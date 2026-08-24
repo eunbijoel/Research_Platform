@@ -1196,6 +1196,7 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
         st.rerun()
     if top[1].button("Ask about this in Chat", use_container_width=True):
         title = doc.get("title") or doc["filename"]
+        st.session_state.chat_focus_document_id = doc_id
         st.session_state.chat_prefill = (
             f"{title} 문서 기준으로, Memory 근거를 들어 핵심 내용을 요약해 주세요."
         )
@@ -1753,6 +1754,16 @@ def _chat_page() -> None:
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
+    focus_id = st.session_state.get("chat_focus_document_id")
+    focus_doc = repo.get_document(str(focus_id)) if focus_id else None
+    if focus_doc:
+        focus_name = focus_doc.get("title") or focus_doc.get("filename") or focus_id
+        fc1, fc2 = st.columns([4, 1])
+        fc1.info(f"Focused document: `{focus_name}` — answers use this file only.")
+        if fc2.button("Clear focus", use_container_width=True):
+            st.session_state.pop("chat_focus_document_id", None)
+            st.rerun()
+
     prefill = st.session_state.get("chat_prefill")
     if prefill:
         st.info(f"From Library: {prefill}")
@@ -1780,7 +1791,11 @@ def _chat_page() -> None:
 
     with st.chat_message("assistant"):
         with st.spinner("Memory에서 근거를 찾는 중…"):
-            result = answer_question(question, repo=repo)
+            result = answer_question(
+                question,
+                repo=repo,
+                document_id=str(focus_id) if focus_id else None,
+            )
         cites = [c.to_dict() for c in result.citations]
         st.markdown(result.answer)
         if cites:
