@@ -33,10 +33,7 @@ def extract_chunks(path: Path) -> tuple[str, list[TextChunk], str]:
         if ext == ".hwpx":
             return "hwpx", _hwpx(path), ""
         if ext == ".hwp":
-            return "hwp", [], (
-                "구형 .hwp(한글 바이너리)는 아직 지원하지 않습니다. "
-                "한글에서 .hwpx로 다시 저장하거나 PDF/DOCX로 변환해 주세요."
-            )
+            return "hwp", _hwp(path), ""
         return "unknown", [], f"Unsupported extension: {ext}"
     except Exception as exc:  # noqa: BLE001 — surface parse failures to ingest
         return ext.lstrip(".") or "unknown", [], str(exc)
@@ -104,6 +101,38 @@ def _excel(path: Path) -> list[TextChunk]:
         text = f"Sheet={name} columns={list(df.columns)} rows={len(df)}\n{preview}"
         chunks.append(TextChunk(text=text, location=f"시트 {name}"))
     return chunks
+
+
+def _hwp(path: Path) -> list[TextChunk]:
+    """HWP 5.x (OLE) text extraction; mislabeled HWPX is handled by the parser."""
+    from research_memory.engine.docsim.parsers.hwp_parser import parse_hwp
+
+    data = path.read_bytes()
+    result = parse_hwp(path.name, data)
+    if not result.success:
+        raise ValueError(result.error_message or "HWP 텍스트 추출 실패")
+    chunks: list[TextChunk] = []
+    for page in result.pages:
+        text = (page.text or "").strip()
+        if not text:
+            continue
+        chunks.append(
+            TextChunk(
+                text=text,
+                location=page.location or f"섹션 {page.page_number}",
+                page=page.page_number,
+            )
+        )
+    if chunks:
+        return chunks
+    combined = "\n".join(
+        (s.normalized_text or s.text or "").strip()
+        for s in result.sentences
+        if (s.normalized_text or s.text or "").strip()
+    ).strip()
+    if combined:
+        return [TextChunk(text=combined, location="전체")]
+    return []
 
 
 def _hwpx(path: Path) -> list[TextChunk]:

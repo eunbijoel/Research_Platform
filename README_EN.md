@@ -64,7 +64,7 @@ flowchart TB
   PROP -.->|drafts return| UP
 ```
 
-Supported formats: PDF, DOCX, TXT/MD, CSV, XLSX, HWPX
+Supported formats: PDF, DOCX, TXT/MD, CSV, XLSX, HWP/HWPX
 
 Search: Ollama embeddings (`nomic-embed-text`) + TF-IDF combined via **hybrid (RRF)** fusion.
 Falls back to TF-IDF only when embeddings are unavailable.

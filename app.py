@@ -1359,6 +1359,7 @@ def _render_original_preview(doc: dict) -> None:
     from research_memory.engine.document_preview import (
         docx_to_html,
         hwpx_preview_html,
+        hwp_text_preview,
         pdf_page_pngs,
         pdf_pages_preview_html,
         preview_kind,
@@ -1459,6 +1460,16 @@ def _render_original_preview(doc: dict) -> None:
             return
         st.dataframe(rows, use_container_width=True)
         st.caption("상위 행만 미리봅니다.")
+        return
+
+    if kind == "hwp":
+        text, err = hwp_text_preview(path)
+        if err:
+            st.warning(err)
+            st.caption("원본 다운로드 또는 `추출 텍스트` 탭에서 확인해 주세요.")
+            return
+        st.caption("HWP 본문 텍스트 미리보기 · 레이아웃/표는 원본과 다를 수 있습니다.")
+        st.text(text)
         return
 
     if kind == "hwpx":
@@ -1676,7 +1687,7 @@ def _upload_panel() -> None:
     document_role = ROLE_REFERENCE if role_label == "참고자료" else ROLE_PROJECT
     uploads = st.file_uploader(
         "Select files",
-        type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx"],
+        type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx", "hwp"],
         accept_multiple_files=True,
         key="lib_uploads",
     )
@@ -1945,7 +1956,7 @@ def _research_note_panel() -> None:
         st.markdown("**New / updated files**")
         uploads = st.file_uploader(
             "새 자료 업로드",
-            type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx"],
+            type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx", "hwp"],
             accept_multiple_files=True,
             key="rn_uploads",
             help="Document Analyser처럼 이번에 추가된 자료",
@@ -2174,7 +2185,7 @@ def _rn_preview_html() -> str:
 def _similarity_panel() -> None:
     st.subheader("문서 유사도 비교")
     st.caption(
-        "Doc_Similarity 엔진: MiniLM 문장·페이지 임베딩 + PDF/DOCX/PPTX/HWPX 파서 + 이미지 pHash. "
+        "Doc_Similarity 엔진: MiniLM 문장·페이지 임베딩 + PDF/DOCX/PPTX/HWP/HWPX 파서 + 이미지 pHash. "
         "첫 실행 시 임베딩 모델 다운로드가 필요할 수 있습니다. Memory 비교는 stored_path 원본이 필요합니다."
     )
     mode = st.radio(
@@ -2585,9 +2596,9 @@ def _proposal_panel() -> None:
     project_filter = (selected_project or "").strip() or None
     rfp_file = st.file_uploader(
         "RFP / 공고문",
-        type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx"],
+        type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx", "hwp"],
         key="prop_rfp_upload",
-        help="Library와 동일: PDF/DOCX/TXT/MD/CSV/Excel/HWPX",
+        help="Library와 동일: PDF/DOCX/TXT/MD/CSV/Excel/HWP/HWPX",
     )
     if st.button("Analyze RFP + Match Memory", type="primary", disabled=not rfp_file):
         with st.spinner("Parsing RFP and retrieving KB evidence…"):

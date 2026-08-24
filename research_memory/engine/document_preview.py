@@ -59,6 +59,8 @@ def preview_kind(path: Path | None, *, file_type: str = "", filename: str = "") 
         return "table"
     if ext == ".hwpx":
         return "hwpx"
+    if ext == ".hwp":
+        return "hwp"
     return "other"
 
 
@@ -307,6 +309,37 @@ def text_file_preview(path: Path, *, max_chars: int = 50000) -> tuple[str, str]:
     if len(text) > max_chars:
         text = text[:max_chars] + "\n\n...(생략)..."
     return text, ""
+
+
+def hwp_text_preview(path: Path, *, max_chars: int = 50000) -> tuple[str, str]:
+    """Extract HWP body text for in-app preview (layout not preserved)."""
+    from research_memory.engine.docsim.parsers.hwp_parser import parse_hwp
+
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        return "", f"HWP 파일을 읽을 수 없습니다: {exc}"
+    result = parse_hwp(path.name, data)
+    if not result.success:
+        return "", result.error_message or "HWP 텍스트 추출 실패"
+    parts: list[str] = []
+    for page in result.pages:
+        text = (page.text or "").strip()
+        if text:
+            label = page.location or f"섹션 {page.page_number}"
+            parts.append(f"[{label}]\n{text}")
+    if not parts:
+        parts = [
+            (s.normalized_text or s.text or "").strip()
+            for s in result.sentences
+            if (s.normalized_text or s.text or "").strip()
+        ]
+    combined = "\n\n".join(parts).strip()
+    if not combined:
+        return "", "HWP에서 표시할 텍스트를 찾지 못했습니다."
+    if len(combined) > max_chars:
+        combined = combined[:max_chars] + "\n\n...(생략)..."
+    return combined, ""
 
 
 def table_preview_records(path: Path, *, max_rows: int = 80) -> tuple[list[dict[str, Any]], str]:

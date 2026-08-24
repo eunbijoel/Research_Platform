@@ -66,7 +66,7 @@ flowchart TB
 
 
 
-지원 형식: PDF, DOCX, TXT/MD, CSV, XLSX, HWPX
+지원 형식: PDF, DOCX, TXT/MD, CSV, XLSX, HWP/HWPX
 
 검색: Ollama 임베딩(`nomic-embed-text`) + TF-IDF를 **hybrid(RRF)** 로 결합.  
 임베딩이 안 되면 TF-IDF만 사용.

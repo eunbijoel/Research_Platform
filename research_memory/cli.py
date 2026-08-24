@@ -29,7 +29,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
             for p in path.rglob("*")
             if p.is_file()
             and p.suffix.lower()
-            in {".pdf", ".docx", ".txt", ".md", ".csv", ".xlsx", ".xls", ".hwpx"}
+            in {".pdf", ".docx", ".txt", ".md", ".csv", ".xlsx", ".xls", ".hwpx", ".hwp"}
         )
     else:
         files = [path]
