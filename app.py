@@ -33,29 +33,27 @@ from research_memory.engine.llm import (
 )
 from research_memory.engine import research_note as research_note_engine
 
-if not hasattr(research_note_engine, "MODE_LABELS"):
+# Streamlit can keep a stale research_note module across edits; force reload
+# when expected exports are missing.
+if not hasattr(research_note_engine, "stt_available"):
     sys.modules.pop("research_memory.engine.research_note", None)
-    research_note_engine = importlib.reload(
-        importlib.import_module("research_memory.engine.research_note")
-    )
+    research_note_engine = importlib.import_module("research_memory.engine.research_note")
 
-from research_memory.engine.research_note import (
-    MODE_LABELS,
-    MODE_MEETING,
-    MODE_RESEARCH,
-    build_research_note_docx,
-    build_research_note_hwpx,
-    generate_research_note_summary,
-    hwpx_available,
-    meeting_as_markdown,
-    meeting_rows,
-    note_as_markdown,
-    note_rows,
-    parse_meeting_note_fields,
-    parse_research_note_fields,
-    stt_available,
-    transcribe_audio_bytes,
-)
+MODE_LABELS = research_note_engine.MODE_LABELS
+MODE_MEETING = research_note_engine.MODE_MEETING
+MODE_RESEARCH = research_note_engine.MODE_RESEARCH
+build_research_note_docx = research_note_engine.build_research_note_docx
+build_research_note_hwpx = research_note_engine.build_research_note_hwpx
+generate_research_note_summary = research_note_engine.generate_research_note_summary
+hwpx_available = research_note_engine.hwpx_available
+meeting_as_markdown = research_note_engine.meeting_as_markdown
+meeting_rows = research_note_engine.meeting_rows
+note_as_markdown = research_note_engine.note_as_markdown
+note_rows = research_note_engine.note_rows
+parse_meeting_note_fields = research_note_engine.parse_meeting_note_fields
+parse_research_note_fields = research_note_engine.parse_research_note_fields
+stt_available = research_note_engine.stt_available
+transcribe_audio_bytes = research_note_engine.transcribe_audio_bytes
 from research_memory.pipeline.extractors import extract_chunks
 from research_memory.pipeline.ingest import ingest_bytes
 from research_memory.engine.proposal import (
