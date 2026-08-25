@@ -639,13 +639,14 @@ def main() -> None:
         else:
             st.write("LLM: **offline**")
             set_active_model(MODEL_NAME)
-        st.write(f"Embed: `{EMBED_MODEL}`")
         if MOCK_LLM:
             st.warning("RM_MOCK_LLM=true")
-        if st.button("Rebuild retrieval index", use_container_width=True):
-            with st.spinner("Embedding chunks…"):
-                n = repo.rebuild_index()
-            st.success(f"chunks={n} · {repo.last_index_status}")
+        with st.expander("고급", expanded=False):
+            st.caption(f"검색 임베딩: `{EMBED_MODEL}`")
+            if st.button("검색 인덱스 재구축", use_container_width=True, key="sidebar_rebuild_index"):
+                with st.spinner("Embedding chunks…"):
+                    n = repo.rebuild_index()
+                st.success(f"chunks={n} · {repo.last_index_status}")
 
     page = st.session_state.page
     if page == PAGE_LIBRARY:
