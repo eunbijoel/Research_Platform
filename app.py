@@ -77,7 +77,9 @@ from research_memory.engine.similarity import (
 )
 from research_memory.engine import schedule as schedule_engine
 
-if not hasattr(schedule_engine, "CALENDAR_CLICK_JS"):
+if not hasattr(schedule_engine, "CALENDAR_CLICK_JS") or not hasattr(
+    schedule_engine, "item_overlaps_month"
+):
     schedule_engine = importlib.reload(schedule_engine)
 
 from research_memory.engine.schedule import (
@@ -88,6 +90,7 @@ from research_memory.engine.schedule import (
     calendar_grid_sunday,
     chip_time_and_title,
     grid_date_bounds,
+    item_overlaps_month,
     items_by_date,
     mount_schedule_calendar,
     normalize_event_type,
@@ -385,7 +388,11 @@ def _sched_init_dialog_state(
         st.session_state.sched_dlg_note = item.get("note") or ""
         st.session_state.sched_dlg_all_day = time_str is None
         st.session_state.sched_dlg_time = _sched_parse_time(time_str)
-        st.session_state.sched_dlg_date = _sched_parse_date(item.get("date"), date.today())
+        start_d = _sched_parse_date(item.get("date"), date.today())
+        end_d = _sched_parse_date(item.get("end_date"), start_d)
+        st.session_state.sched_dlg_date = start_d
+        st.session_state.sched_dlg_end_date = end_d
+        st.session_state.sched_dlg_range = end_d != start_d
         st.session_state.sched_dlg_type = normalize_event_type(item.get("event_type"))
         st.session_state.sched_dlg_status = normalize_status(item.get("status"))
         st.session_state.sched_dlg_project = item.get("project_id") or projects[0]["project_id"]
@@ -394,11 +401,13 @@ def _sched_init_dialog_state(
         st.session_state.sched_dlg_note = ""
         st.session_state.sched_dlg_all_day = True
         st.session_state.sched_dlg_time = time(9, 0)
-        st.session_state.sched_dlg_date = add_date or date.today()
+        day = add_date or date.today()
+        st.session_state.sched_dlg_date = day
+        st.session_state.sched_dlg_end_date = day
+        st.session_state.sched_dlg_range = False
         st.session_state.sched_dlg_type = "task"
         st.session_state.sched_dlg_status = "planned"
         st.session_state.sched_dlg_project = projects[0]["project_id"]
-    st.session_state.sched_dlg_range = False
     st.session_state.sched_dlg_loaded = load_key
 
 
@@ -410,6 +419,15 @@ def _sched_composed_title() -> str:
         return title
     tval = st.session_state.get("sched_dlg_time") or time(9, 0)
     return f"{tval.strftime('%H:%M')} {title}"
+
+
+def _sched_dialog_dates() -> tuple[str, str]:
+    start = st.session_state.sched_dlg_date
+    if st.session_state.get("sched_dlg_range"):
+        end = st.session_state.get("sched_dlg_end_date") or start
+    else:
+        end = start
+    return start.isoformat(), end.isoformat()
 
 
 def _schedule_task_form(
@@ -440,24 +458,28 @@ def _schedule_task_form(
         )
         st.toggle("종일", key="sched_dlg_all_day", label_visibility="collapsed")
     with t2:
+        range_on = bool(st.session_state.get("sched_dlg_range"))
+        on_cls = "on" if range_on else ""
         st.markdown(
-            '<span class="rm-dlg-toggle-mark"></span>'
+            f'<span class="rm-dlg-toggle-mark {on_cls}"></span>'
             '<p class="rm-dlg-toggle-title">기간</p>'
             '<p class="rm-dlg-toggle-sub">시작 · 종료</p>',
             unsafe_allow_html=True,
         )
-        st.toggle(
-            "기간",
-            key="sched_dlg_range",
-            label_visibility="collapsed",
-            disabled=True,
-            help="기간(시작~종료)은 아직 지원하지 않습니다.",
-        )
+        st.toggle("기간", key="sched_dlg_range", label_visibility="collapsed")
 
-    date_label = "종료 · 마감일 *"
-    st.date_input(date_label, key="sched_dlg_date", format="YYYY-MM-DD")
+    if st.session_state.get("sched_dlg_range"):
+        if "sched_dlg_end_date" not in st.session_state:
+            st.session_state.sched_dlg_end_date = st.session_state.sched_dlg_date
+        d1, d2 = st.columns(2)
+        with d1:
+            st.date_input("시작일 *", key="sched_dlg_date", format="YYYY-MM-DD")
+        with d2:
+            st.date_input("종료일 *", key="sched_dlg_end_date", format="YYYY-MM-DD")
+    else:
+        st.date_input("날짜 *", key="sched_dlg_date", format="YYYY-MM-DD")
     if not st.session_state.get("sched_dlg_all_day", True):
-        st.time_input("종료 시각", key="sched_dlg_time", step=60)
+        st.time_input("시작 시각", key="sched_dlg_time", step=60)
 
     s1, s2 = st.columns(2)
     with s1:
@@ -512,10 +534,12 @@ def _schedule_task_form(
                 if not title:
                     st.warning("제목을 입력하세요.")
                 else:
+                    start_s, end_s = _sched_dialog_dates()
                     repo.update_schedule_item(
                         item_id,
                         title=title,
-                        date=st.session_state.sched_dlg_date.isoformat(),
+                        date=start_s,
+                        end_date=end_s,
                         event_type=normalize_event_type(st.session_state.sched_dlg_type),
                         status=normalize_status(st.session_state.sched_dlg_status),
                         project_id=st.session_state.sched_dlg_project,
@@ -535,11 +559,13 @@ def _schedule_task_form(
                 if not title:
                     st.warning("제목을 입력하세요.")
                 else:
+                    start_s, end_s = _sched_dialog_dates()
                     repo.add_schedule_item(
                         project_id=st.session_state.sched_dlg_project,
                         title=title,
                         event_type=normalize_event_type(st.session_state.sched_dlg_type),
-                        date=st.session_state.sched_dlg_date.isoformat(),
+                        date=start_s,
+                        end_date=end_s,
                         status=normalize_status(st.session_state.sched_dlg_status),
                         note=(st.session_state.sched_dlg_note or "").strip(),
                     )
@@ -3243,7 +3269,7 @@ def _schedule_panel() -> None:
         date_to=grid_to,
     )
     by_day = items_by_date(items)
-    month_items = [it for it in items if str(it.get("date", "")).startswith(f"{year:04d}-{month:02d}")]
+    month_items = [it for it in items if item_overlaps_month(it, year, month)]
     items_by_id = {it["id"]: it for it in items}
 
     selected_item_id = st.session_state.get("sched_selected_item_id")

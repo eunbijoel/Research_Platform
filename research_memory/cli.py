@@ -114,6 +114,7 @@ def cmd_schedule(args: argparse.Namespace) -> None:
             title=args.title,
             event_type=normalize_event_type(args.type),
             date=args.date,
+            end_date=args.end_date or None,
             status=normalize_status(args.status),
             note=args.note or "",
         )
@@ -188,7 +189,8 @@ def main() -> None:
     p_sched.add_argument("--status", default="")
     p_sched.add_argument("--add", action="store_true", help="Add a schedule item")
     p_sched.add_argument("--title", default="")
-    p_sched.add_argument("--date", default="", help="YYYY-MM-DD")
+    p_sched.add_argument("--date", default="", help="YYYY-MM-DD (start date)")
+    p_sched.add_argument("--end-date", default="", help="YYYY-MM-DD (optional end date)")
     p_sched.add_argument(
         "--type",
         default="task",

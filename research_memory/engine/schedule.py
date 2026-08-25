@@ -140,15 +140,24 @@ def render_calendar_html(
                 chip_cls = event_chip_class(it.get("event_type"), it.get("status"))
                 if selected_item_id == it["id"]:
                     chip_cls += " selected"
+                span_label = schedule_date_label(it)
+                start_s = str(it.get("date") or "")[:10]
+                end_s = str(it.get("end_date") or start_s)[:10]
+                if end_s and end_s != start_s:
+                    chip_cls += " multi"
                 time_html = ""
-                if chip_time:
+                if chip_time and date_key == start_s:
                     time_html = (
                         f'<span class="rm-cal-html-chip-time">'
                         f'{html_mod.escape(chip_time)}</span>'
                     )
-                tooltip = html_mod.escape(
-                    f"{chip_time} {chip_title}".strip() if chip_time else chip_title
-                )
+                tip_bits = []
+                if span_label:
+                    tip_bits.append(span_label)
+                if chip_time:
+                    tip_bits.append(chip_time)
+                tip_bits.append(chip_title)
+                tooltip = html_mod.escape(" · ".join(tip_bits))
                 parts.append(
                     f'<button type="button" class="rm-cal-html-chip {chip_cls}" '
                     f'data-sched-date="{html_mod.escape(date_key)}" '
@@ -318,6 +327,10 @@ CALENDAR_IFRAME_CSS = """
   text-decoration: line-through;
 }
 .rm-cal-html-chip.selected { box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.35); }
+.rm-cal-html-chip.multi {
+  border-left: 3px solid currentColor;
+  padding-left: 0.28rem;
+}
 .rm-cal-html-more {
   position: relative;
   z-index: 3;
@@ -397,12 +410,64 @@ def list_month_items(
 
 
 def items_by_date(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Group items by each calendar day they cover (supports multi-day ranges)."""
+    from datetime import timedelta
+
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for item in items:
-        key = str(item.get("date") or "")
-        if key:
-            grouped[key].append(item)
+        start_s = str(item.get("date") or "").strip()[:10]
+        end_s = str(item.get("end_date") or "").strip()[:10] or start_s
+        if not start_s:
+            continue
+        try:
+            start = date.fromisoformat(start_s)
+            end = date.fromisoformat(end_s)
+        except ValueError:
+            grouped[start_s].append(item)
+            continue
+        if end < start:
+            start, end = end, start
+        cursor = start
+        while cursor <= end:
+            day_items = grouped[cursor.isoformat()]
+            if not any(it.get("id") == item.get("id") for it in day_items):
+                day_items.append(item)
+            cursor += timedelta(days=1)
     return dict(grouped)
+
+
+def schedule_date_label(item: dict[str, Any]) -> str:
+    """Human-readable date or range for tooltips."""
+    start_s = str(item.get("date") or "").strip()[:10]
+    end_s = str(item.get("end_date") or "").strip()[:10] or start_s
+    if not start_s:
+        return ""
+    if end_s and end_s != start_s:
+        return f"{start_s} ~ {end_s}"
+    return start_s
+
+
+def item_overlaps_month(item: dict[str, Any], year: int, month: int) -> bool:
+    start_s = str(item.get("date") or "").strip()[:10]
+    end_s = str(item.get("end_date") or "").strip()[:10] or start_s
+    if not start_s:
+        return False
+    try:
+        start = date.fromisoformat(start_s)
+        end = date.fromisoformat(end_s)
+    except ValueError:
+        return start_s.startswith(f"{year:04d}-{month:02d}")
+    if end < start:
+        start, end = end, start
+    month_start = date(year, month, 1)
+    if month == 12:
+        month_end = date(year + 1, 1, 1)
+    else:
+        month_end = date(year, month + 1, 1)
+    from datetime import timedelta
+
+    month_end = month_end - timedelta(days=1)
+    return start <= month_end and end >= month_start
 
 
 def calendar_grid_sunday(year: int, month: int) -> list[list[date]]:

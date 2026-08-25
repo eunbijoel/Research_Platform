@@ -138,6 +138,7 @@ class KnowledgeRepository:
                     title TEXT NOT NULL,
                     event_type TEXT NOT NULL,
                     date TEXT NOT NULL,
+                    end_date TEXT,
                     status TEXT NOT NULL DEFAULT 'planned',
                     note TEXT,
                     created_at TEXT NOT NULL,
@@ -148,6 +149,23 @@ class KnowledgeRepository:
                 CREATE INDEX IF NOT EXISTS idx_schedule_date ON schedule_items(date);
                 """
             )
+            self._migrate_schedule_end_date(conn)
+
+    @staticmethod
+    def _migrate_schedule_end_date(conn: sqlite3.Connection) -> None:
+        cols = {
+            str(r[1])
+            for r in conn.execute("PRAGMA table_info(schedule_items)").fetchall()
+        }
+        if "end_date" not in cols:
+            conn.execute("ALTER TABLE schedule_items ADD COLUMN end_date TEXT")
+        conn.execute(
+            "UPDATE schedule_items SET end_date = date "
+            "WHERE end_date IS NULL OR TRIM(end_date) = ''"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_schedule_end_date ON schedule_items(end_date)"
+        )
 
     def get_document_by_hash(self, content_hash: str) -> dict[str, Any] | None:
         with self._conn() as conn:
@@ -708,31 +726,52 @@ class KnowledgeRepository:
         date: str,
         status: str = "planned",
         note: str = "",
+        end_date: str | None = None,
     ) -> str:
         project_id = (project_id or "").strip()
         title = (title or "").strip()
         event_type = (event_type or "").strip()
         date = (date or "").strip()
+        end_raw = (end_date or "").strip() or date
         status = (status or "planned").strip() or "planned"
         if not project_id or not title or not event_type or not date:
             raise ValueError("project_id, title, event_type, date required")
+        if end_raw < date:
+            date, end_raw = end_raw, date
         sid = str(uuid.uuid4())
         with self._conn() as conn:
             conn.execute(
                 """
                 INSERT INTO schedule_items (
-                    id, project_id, title, event_type, date, status, note, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    id, project_id, title, event_type, date, end_date, status, note, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (sid, project_id, title, event_type, date, status, note or "", _utc_now()),
+                (
+                    sid,
+                    project_id,
+                    title,
+                    event_type,
+                    date,
+                    end_raw,
+                    status,
+                    note or "",
+                    _utc_now(),
+                ),
             )
         return sid
 
     def update_schedule_item(self, item_id: str, **fields: Any) -> None:
-        allowed = {"title", "event_type", "date", "status", "note", "project_id"}
+        allowed = {"title", "event_type", "date", "end_date", "status", "note", "project_id"}
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
             return
+        if "date" in updates or "end_date" in updates:
+            start = str(updates.get("date") or "").strip()
+            end = str(updates.get("end_date") or "").strip()
+            if start and end and end < start:
+                updates["date"], updates["end_date"] = end, start
+            elif start and not end:
+                updates["end_date"] = start
         cols = ", ".join(f"{k}=?" for k in updates)
         values = list(updates.values()) + [item_id]
         with self._conn() as conn:
@@ -767,9 +806,11 @@ class KnowledgeRepository:
             clauses.append("status = ?")
             params.append(status)
         if date_from:
-            clauses.append("date >= ?")
+            # Overlap: item_end >= range_start
+            clauses.append("COALESCE(NULLIF(TRIM(end_date), ''), date) >= ?")
             params.append(date_from)
         if date_to:
+            # Overlap: item_start <= range_end
             clauses.append("date <= ?")
             params.append(date_to)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
