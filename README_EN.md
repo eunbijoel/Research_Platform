@@ -79,7 +79,7 @@ Falls back to TF-IDF only when embeddings are unavailable.
 | **Schedule** | Monthly calendar for project meetings, submissions, tasks, and milestones. Click an empty day cell to add, click a chip to edit. (Notifications and external calendar sync are referenced from [myown](https://github.com/sumin-ma-1/myown).) |
 | **Library** | Browse, upload, and delete documents by project folder. Assign document roles (research doc / reference) and view Document Insight. |
 | **Chat** | Ask questions against Memory. Each answer cites its source (file, location) tagged as `[research doc]` or `[regulation]`. Refuses to answer without evidence. |
-| **Research Note** | Draft project-specific research notes. References Memory + uploaded materials. Table preview, DOCX/HWPX download, and save to Memory. |
+| **Research Notes** | Draft research notes or meeting minutes. References Memory + uploads (meeting mode: recording/transcript). Table preview, DOCX/HWPX download, save to Memory. |
 | **Proposal** | Upload an RFP and generate a center-part draft with compliance points, grounded in **research docs + regulations**. This is not a full proposal auto-generator. |
 | **Similarity** | Compare a new document against Memory (or two documents against each other) at the sentence, page, and image level. Uses MiniLM + pHash for duplicate and reuse detection. |
 

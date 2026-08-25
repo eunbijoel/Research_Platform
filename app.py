@@ -32,13 +32,20 @@ from research_memory.engine.llm import (
     set_active_model,
 )
 from research_memory.engine.research_note import (
+    MODE_LABELS,
+    MODE_MEETING,
+    MODE_RESEARCH,
     build_research_note_docx,
     build_research_note_hwpx,
     generate_research_note_summary,
     hwpx_available,
+    meeting_as_markdown,
+    meeting_rows,
     note_as_markdown,
     note_rows,
+    parse_meeting_note_fields,
     parse_research_note_fields,
+    transcribe_audio_bytes,
 )
 from research_memory.pipeline.extractors import extract_chunks
 from research_memory.pipeline.ingest import ingest_bytes
@@ -110,7 +117,7 @@ MAIN_NAV = [
     (PAGE_SCHEDULE, "📅 일정 관리"),
     (PAGE_LIBRARY, "📚 라이브러리"),
     (PAGE_CHAT, "💬 채팅"),
-    (PAGE_RESEARCH_NOTE, "📝 연구노트"),
+    (PAGE_RESEARCH_NOTE, "📝 연구 기록"),
     (PAGE_PROPOSAL, "🖊️ 제안서"),
     (PAGE_SIMILARITY, "🔍 유사도 검토"),
 ]
@@ -618,8 +625,8 @@ def main() -> None:
     elif page == PAGE_CHAT:
         _chat_page()
     elif page == PAGE_RESEARCH_NOTE:
-        st.title("Research Note")
-        st.caption("프로젝트 맞춤 연구노트 작성 페이지 입니다. Memory+추가자료 참고 및 다운로드 및 저장.")
+        st.title("연구 기록")
+        st.caption("연구노트·회의록 초안을 Memory/새 자료로 만들고 표로 저장합니다.")
         _research_note_panel()
     elif page == PAGE_PROPOSAL:
         _roadmap_banner(
@@ -1875,10 +1882,10 @@ def _rn_extract_upload_text(uploads) -> tuple[list[str], list[str]]:
 
 
 def _research_note_panel() -> None:
-    """Project-scoped research note: past Memory + new uploads → table note → save."""
+    """Project-scoped research/meeting note: sources → AI draft → table → save."""
 
-    # defaults
     for k, v in (
+        ("rn_mode", MODE_RESEARCH),
         ("rn_topic", ""),
         ("rn_owner", ""),
         ("rn_author", ""),
@@ -1886,26 +1893,64 @@ def _research_note_panel() -> None:
         ("rn_results", ""),
         ("rn_etc", ""),
         ("rn_writer_text", ""),
+        ("mt_attendees", ""),
+        ("mt_agenda", ""),
+        ("mt_discussion", ""),
+        ("mt_decisions", ""),
+        ("mt_actions", ""),
+        ("mt_transcript", ""),
+        ("mt_recording_name", ""),
     ):
         if k not in st.session_state:
             st.session_state[k] = v
     if "rn_date" not in st.session_state:
         st.session_state.rn_date = date.today()
 
+    mode_label = st.radio(
+        "작성 모드",
+        [MODE_LABELS[MODE_RESEARCH], MODE_LABELS[MODE_MEETING]],
+        horizontal=True,
+        key="rn_mode_radio",
+        help="연구노트와 회의록은 같은 흐름으로 작성하고, 표 템플릿만 다릅니다.",
+    )
+    mode = MODE_MEETING if mode_label == MODE_LABELS[MODE_MEETING] else MODE_RESEARCH
+    st.session_state.rn_mode = mode
+    mode_title = MODE_LABELS[mode]
+
     # pending convert (widget-safe)
     pending = st.session_state.pop("rn_pending_content", None)
     if pending is not None:
         text = str(pending)
-        parsed = parse_research_note_fields(text)
-        if parsed.get("topic") or parsed.get("results") or "주제 제안" in text:
+        if mode == MODE_MEETING:
+            parsed = parse_meeting_note_fields(text)
             if parsed.get("topic"):
                 st.session_state.rn_topic = parsed["topic"]
-            if str(parsed.get("content") or "").strip():
-                st.session_state.rn_content = parsed["content"]
-            if parsed.get("results"):
-                st.session_state.rn_results = parsed["results"]
+            if parsed.get("attendees"):
+                st.session_state.mt_attendees = parsed["attendees"]
+            if parsed.get("agenda"):
+                st.session_state.mt_agenda = parsed["agenda"]
+            if parsed.get("discussion"):
+                st.session_state.mt_discussion = parsed["discussion"]
+            if parsed.get("decisions"):
+                st.session_state.mt_decisions = parsed["decisions"]
+            if parsed.get("actions"):
+                st.session_state.mt_actions = parsed["actions"]
+            if not any(
+                str(st.session_state.get(k) or "").strip()
+                for k in ("mt_discussion", "mt_decisions", "mt_actions", "rn_topic")
+            ):
+                st.session_state.mt_discussion = text
         else:
-            st.session_state.rn_content = text
+            parsed = parse_research_note_fields(text)
+            if parsed.get("topic") or parsed.get("results") or "주제 제안" in text:
+                if parsed.get("topic"):
+                    st.session_state.rn_topic = parsed["topic"]
+                if str(parsed.get("content") or "").strip():
+                    st.session_state.rn_content = parsed["content"]
+                if parsed.get("results"):
+                    st.session_state.rn_results = parsed["results"]
+            else:
+                st.session_state.rn_content = text
         st.session_state.rn_converted = True
 
     st.markdown("#### 1. Project")
@@ -1923,14 +1968,12 @@ def _research_note_panel() -> None:
             key="rn_project_custom",
             placeholder="e.g. ALD-2024",
         )
-    project_id = (custom or "").strip() or (
-        "" if choice == "(선택)" else choice
-    )
+    project_id = (custom or "").strip() or ("" if choice == "(선택)" else choice)
     if not project_id:
-        st.info("먼저 이 연구노트가 속할 **Project**를 선택하거나 입력하세요.")
+        st.info(f"먼저 이 {mode_title}가 속할 **Project**를 선택하거나 입력하세요.")
         return
     st.session_state.rn_project_id = project_id
-    st.caption(f"현재 프로젝트: `{project_id}`")
+    st.caption(f"현재 프로젝트: `{project_id}` · 모드: {mode_title}")
 
     st.markdown("#### 2. Sources")
     scol1, scol2 = st.columns(2)
@@ -1942,7 +1985,6 @@ def _research_note_panel() -> None:
             if d.get("status") == "ready"
             and (d.get("project_id") or "").strip() == project_id
         ]
-        # also allow browsing other memory docs
         other = [
             d
             for d in repo.list_documents()
@@ -1962,7 +2004,7 @@ def _research_note_panel() -> None:
             "과거 Memory 문서",
             list(mem_labels.keys()),
             key="rn_mem_docs",
-            help="같은 과제에서 이어갈 과거 노트·보고서 등",
+            help="같은 과제에서 이어갈 과거 노트·보고서·회의록 등",
         )
         if not proj_docs:
             st.caption("이 프로젝트에 아직 Memory 문서가 없습니다.")
@@ -1974,16 +2016,47 @@ def _research_note_panel() -> None:
             type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx", "hwp"],
             accept_multiple_files=True,
             key="rn_uploads",
-            help="Document Analyser처럼 이번에 추가된 자료",
+            help="문서·메모 등 추가 자료",
         )
         paste = st.text_area(
             "짧은 메모 / 붙여넣기",
-            height=100,
+            height=90,
             key="rn_paste",
-            placeholder="오늘 진행 메모…",
+            placeholder="오늘 진행 메모…" if mode == MODE_RESEARCH else "회의 메모…",
         )
 
-    if st.button("연구노트용 통합 요약 생성", type="primary", key="rn_gen"):
+        if mode == MODE_MEETING:
+            st.markdown("**녹음 기반 (회의록)**")
+            audio = st.file_uploader(
+                "회의 녹음 파일",
+                type=["mp3", "wav", "m4a", "webm", "ogg", "flac"],
+                accept_multiple_files=False,
+                key="rn_audio",
+                help="녹음 → 받아쓰기(가능하면) 또는 트랜스크립트 붙여넣기 → 회의록 초안",
+            )
+            st.text_area(
+                "트랜스크립트 (받아쓰기 결과 / 직접 붙여넣기)",
+                height=140,
+                key="mt_transcript",
+                placeholder="녹음 받아쓰기 텍스트를 붙여넣거나, 아래 버튼으로 자동 변환을 시도하세요.",
+            )
+            if audio is not None:
+                st.session_state.mt_recording_name = audio.name
+                st.session_state.mt_recording_bytes = audio.getvalue()
+                if st.button("녹음 → 텍스트 변환 시도", key="rn_transcribe"):
+                    with st.spinner("음성 변환 중… (faster-whisper / whisper가 있으면 사용)"):
+                        text, err = transcribe_audio_bytes(audio.getvalue(), audio.name)
+                    if text:
+                        st.session_state.mt_transcript = text
+                        st.success(f"변환됨 · `{audio.name}`")
+                        st.rerun()
+                    else:
+                        st.warning(err or "변환 실패")
+            elif st.session_state.get("mt_recording_name"):
+                st.caption(f"최근 녹음: `{st.session_state.mt_recording_name}`")
+
+    gen_label = f"{mode_title} 통합 요약 생성"
+    if st.button(gen_label, type="primary", key="rn_gen"):
         parts: list[str] = []
         filenames: list[str] = []
         for lab in picked:
@@ -2000,37 +2073,76 @@ def _research_note_panel() -> None:
         if paste.strip():
             parts.append(f"# note\n{paste.strip()}")
             filenames.append("pasted_note")
+        transcript = (st.session_state.get("mt_transcript") or "").strip()
+        if mode == MODE_MEETING and transcript:
+            rec = st.session_state.get("mt_recording_name") or "recording"
+            parts.append(f"# [Transcript] {rec}\n{transcript[:12000]}")
+            filenames.append(str(rec))
         if not parts:
-            st.warning("과거 Memory 문서나 새 파일을 하나 이상 넣어 주세요.")
+            if mode == MODE_MEETING:
+                st.warning("녹음 트랜스크립트, Memory 문서, 또는 새 파일을 하나 이상 넣어 주세요.")
+            else:
+                st.warning("과거 Memory 문서나 새 파일을 하나 이상 넣어 주세요.")
         else:
-            with st.spinner("연구노트용 요약 생성 중…"):
+            with st.spinner(f"{mode_title} 요약 생성 중…"):
                 summary = generate_research_note_summary(
                     "\n\n".join(parts),
                     filenames=filenames,
+                    mode=mode,
                 )
             st.session_state.rn_writer_text = summary
             st.session_state.rn_source_files = filenames
-            parsed = parse_research_note_fields(summary)
-            if parsed.get("topic"):
-                st.session_state.rn_topic = parsed["topic"]
-            if parsed.get("content"):
-                st.session_state.rn_content = parsed["content"]
-            if parsed.get("results"):
-                st.session_state.rn_results = parsed["results"]
-            # auto-convert into table form (preview = download)
+            if mode == MODE_MEETING:
+                parsed = parse_meeting_note_fields(summary)
+                if parsed.get("topic"):
+                    st.session_state.rn_topic = parsed["topic"]
+                if parsed.get("attendees"):
+                    st.session_state.mt_attendees = parsed["attendees"]
+                if parsed.get("agenda"):
+                    st.session_state.mt_agenda = parsed["agenda"]
+                if parsed.get("discussion"):
+                    st.session_state.mt_discussion = parsed["discussion"]
+                if parsed.get("decisions"):
+                    st.session_state.mt_decisions = parsed["decisions"]
+                if parsed.get("actions"):
+                    st.session_state.mt_actions = parsed["actions"]
+            else:
+                parsed = parse_research_note_fields(summary)
+                if parsed.get("topic"):
+                    st.session_state.rn_topic = parsed["topic"]
+                if parsed.get("content"):
+                    st.session_state.rn_content = parsed["content"]
+                if parsed.get("results"):
+                    st.session_state.rn_results = parsed["results"]
             st.session_state.rn_converted = True
             st.rerun()
 
     summary = st.session_state.get("rn_writer_text") or ""
-    if not summary and not any(
-        str(st.session_state.get(k) or "").strip()
-        for k in ("rn_topic", "rn_content", "rn_results")
-    ):
-        st.info(
-            "1. Project 선택\n"
-            "2. 과거 Memory + 새 파일/메모\n"
-            "3. **통합 요약 생성** → 표 편집 → 다운로드 / Memory 저장"
+    draft_ready = bool(summary) or (
+        any(
+            str(st.session_state.get(k) or "").strip()
+            for k in (
+                ("rn_topic", "mt_discussion", "mt_decisions", "mt_actions")
+                if mode == MODE_MEETING
+                else ("rn_topic", "rn_content", "rn_results")
+            )
         )
+    )
+    if not draft_ready:
+        if mode == MODE_MEETING:
+            st.info(
+                "1. Project 선택\n"
+                "2. **녹음 파일 + 트랜스크립트**(또는 Memory/메모)\n"
+                "3. **통합 요약 생성** → 표 편집 → 다운로드 / Memory 저장\n\n"
+                "자동 받아쓰기는 `faster-whisper`/`openai-whisper`가 있을 때 시도합니다. "
+                "없으면 트랜스크립트를 붙여넣으면 됩니다."
+            )
+        else:
+            st.info(
+                "1. Project 선택\n"
+                "2. 과거 Memory + 새 파일/메모\n"
+                "3. **통합 요약 생성** → 표 편집 → 다운로드 / Memory 저장"
+            )
         return
 
     files = st.session_state.get("rn_source_files") or []
@@ -2047,8 +2159,8 @@ def _research_note_panel() -> None:
             height=280,
             label_visibility="collapsed",
         )
-        st.markdown("**연구노트 미리보기 (표)**")
-        components.html(_rn_preview_html(), height=420, scrolling=True)
+        st.markdown(f"**{mode_title} 미리보기 (표)**")
+        components.html(_rn_preview_html(mode=mode), height=420, scrolling=True)
 
     with mid:
         st.write("")
@@ -2062,45 +2174,75 @@ def _research_note_panel() -> None:
             st.caption("반영됨 →")
 
     with right:
-        st.markdown("**연구노트 표**")
-        st.text_input("주제", key="rn_topic")
-        st.text_input("책임자", key="rn_owner")
-        st.date_input("일시", key="rn_date")
-        st.text_input("작성자", key="rn_author")
-        st.text_area("내용", key="rn_content", height=160)
-        st.text_area("연구결과", key="rn_results", height=100)
-        st.text_area("기타내용", key="rn_etc", height=80)
+        st.markdown(f"**{mode_title} 표**")
+        if mode == MODE_MEETING:
+            st.text_input("회의 제목", key="rn_topic")
+            st.date_input("일시", key="rn_date")
+            st.text_input("참석자", key="mt_attendees", placeholder="홍길동, 김철수…")
+            st.text_area("안건", key="mt_agenda", height=70)
+            st.text_area("논의내용", key="mt_discussion", height=120)
+            st.text_area("결정사항", key="mt_decisions", height=90)
+            st.text_area(
+                "Action Item",
+                key="mt_actions",
+                height=90,
+                placeholder="담당 / 기한 / 할 일",
+            )
+        else:
+            st.text_input("주제", key="rn_topic")
+            st.text_input("책임자", key="rn_owner")
+            st.date_input("일시", key="rn_date")
+            st.text_input("작성자", key="rn_author")
+            st.text_area("내용", key="rn_content", height=160)
+            st.text_area("연구결과", key="rn_results", height=100)
+            st.text_area("기타내용", key="rn_etc", height=80)
 
     st.markdown("---")
     st.subheader("4. Export & Save")
     d = st.session_state.get("rn_date")
     date_s = d.isoformat() if hasattr(d, "isoformat") else str(d or "")
-    rows = note_rows(
-        topic=st.session_state.get("rn_topic") or "",
-        owner=st.session_state.get("rn_owner") or "",
-        date_s=date_s,
-        author=st.session_state.get("rn_author") or "",
-        content=st.session_state.get("rn_content") or "",
-        results=st.session_state.get("rn_results") or "",
-        etc=st.session_state.get("rn_etc") or "",
-    )
+    if mode == MODE_MEETING:
+        rows = meeting_rows(
+            topic=st.session_state.get("rn_topic") or "",
+            date_s=date_s,
+            attendees=st.session_state.get("mt_attendees") or "",
+            agenda=st.session_state.get("mt_agenda") or "",
+            discussion=st.session_state.get("mt_discussion") or "",
+            decisions=st.session_state.get("mt_decisions") or "",
+            actions=st.session_state.get("mt_actions") or "",
+        )
+        export_title = "회의록"
+        prefix = "meeting_minutes"
+    else:
+        rows = note_rows(
+            topic=st.session_state.get("rn_topic") or "",
+            owner=st.session_state.get("rn_owner") or "",
+            date_s=date_s,
+            author=st.session_state.get("rn_author") or "",
+            content=st.session_state.get("rn_content") or "",
+            results=st.session_state.get("rn_results") or "",
+            etc=st.session_state.get("rn_etc") or "",
+        )
+        export_title = "연구노트"
+        prefix = "research_note"
 
-    # Always export table format (same as preview)
     try:
-        docx_bytes = build_research_note_docx(rows)
+        docx_bytes = build_research_note_docx(rows, title=export_title)
         hwpx_bytes = None
         hwpx_err = ""
         if hwpx_available():
             try:
-                hwpx_bytes = build_research_note_hwpx(rows)
+                hwpx_bytes = build_research_note_hwpx(rows, title=export_title)
             except Exception as exc:  # noqa: BLE001
                 hwpx_err = str(exc)
     except Exception as exc:  # noqa: BLE001
         st.error(f"표 형식 파일 생성 실패: {exc}")
         return
 
-    topic_slug = re.sub(r"[^\w가-힣\-]+", "_", (st.session_state.get("rn_topic") or "research_note"))[:40]
-    base_name = f"research_note_{project_id}_{date_s}_{topic_slug}".strip("_")
+    topic_slug = re.sub(
+        r"[^\w가-힣\-]+", "_", (st.session_state.get("rn_topic") or prefix)
+    )[:40]
+    base_name = f"{prefix}_{project_id}_{date_s}_{topic_slug}".strip("_")
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -2125,33 +2267,56 @@ def _research_note_panel() -> None:
         )
     with c3:
         if st.button("Memory에 저장", use_container_width=True, key="rn_save_mem"):
-            md = note_as_markdown(
-                topic=st.session_state.get("rn_topic") or "",
-                owner=st.session_state.get("rn_owner") or "",
-                date_s=date_s,
-                author=st.session_state.get("rn_author") or "",
-                content=st.session_state.get("rn_content") or "",
-                results=st.session_state.get("rn_results") or "",
-                etc=st.session_state.get("rn_etc") or "",
-                project_id=project_id,
-            )
-            with st.spinner("Memory에 연구노트 저장 중…"):
+            if mode == MODE_MEETING:
+                md = meeting_as_markdown(
+                    topic=st.session_state.get("rn_topic") or "",
+                    date_s=date_s,
+                    attendees=st.session_state.get("mt_attendees") or "",
+                    agenda=st.session_state.get("mt_agenda") or "",
+                    discussion=st.session_state.get("mt_discussion") or "",
+                    decisions=st.session_state.get("mt_decisions") or "",
+                    actions=st.session_state.get("mt_actions") or "",
+                    project_id=project_id,
+                    recording_name=st.session_state.get("mt_recording_name") or "",
+                )
+            else:
+                md = note_as_markdown(
+                    topic=st.session_state.get("rn_topic") or "",
+                    owner=st.session_state.get("rn_owner") or "",
+                    date_s=date_s,
+                    author=st.session_state.get("rn_author") or "",
+                    content=st.session_state.get("rn_content") or "",
+                    results=st.session_state.get("rn_results") or "",
+                    etc=st.session_state.get("rn_etc") or "",
+                    project_id=project_id,
+                )
+            with st.spinner(f"Memory에 {mode_title} 저장 중…"):
                 result = ingest_bytes(
                     md.encode("utf-8"),
                     f"{base_name}.md",
                     repo=repo,
                     project_id=project_id,
                 )
-                # also keep table DOCX in Memory
                 ingest_bytes(
                     docx_bytes,
                     f"{base_name}.docx",
                     repo=repo,
                     project_id=project_id,
                 )
+                # Keep recording next to Memory when provided (optional attachment).
+                rec_bytes = st.session_state.get("mt_recording_bytes")
+                rec_name = st.session_state.get("mt_recording_name") or "recording.wav"
+                if mode == MODE_MEETING and rec_bytes:
+                    try:
+                        from research_memory.config import RAW_DIR
+
+                        raw_name = f"{base_name}__{Path(str(rec_name)).name}"
+                        (RAW_DIR / raw_name).write_bytes(rec_bytes)
+                    except Exception:
+                        pass
             if result.get("ok"):
                 st.success(
-                    f"저장됨 · project=`{project_id}` · "
+                    f"저장됨 · {mode_title} · project=`{project_id}` · "
                     f"{'updated' if result.get('skipped') else 'new'} "
                     f"{result.get('filename')}"
                 )
@@ -2163,22 +2328,41 @@ def _research_note_panel() -> None:
     st.caption("다운로드·저장은 미리보기와 같은 **표 형식**입니다.")
 
 
-def _rn_preview_html() -> str:
+def _rn_preview_html(*, mode: str = MODE_RESEARCH) -> str:
     d = st.session_state.get("rn_date")
     date_s = d.isoformat() if hasattr(d, "isoformat") else str(d or "")
-    rows = note_rows(
-        topic=st.session_state.get("rn_topic") or "",
-        owner=st.session_state.get("rn_owner") or "",
-        date_s=date_s,
-        author=st.session_state.get("rn_author") or "",
-        content=st.session_state.get("rn_content") or "",
-        results=st.session_state.get("rn_results") or "",
-        etc=st.session_state.get("rn_etc") or "",
-    )
-    tall = {"내 용", "연구결과", "기타내용"}
+    if mode == MODE_MEETING:
+        rows = meeting_rows(
+            topic=st.session_state.get("rn_topic") or "",
+            date_s=date_s,
+            attendees=st.session_state.get("mt_attendees") or "",
+            agenda=st.session_state.get("mt_agenda") or "",
+            discussion=st.session_state.get("mt_discussion") or "",
+            decisions=st.session_state.get("mt_decisions") or "",
+            actions=st.session_state.get("mt_actions") or "",
+        )
+        title = "회의록"
+        tall = {"논의내용", "결정사항", "Action Item", "안 건"}
+    else:
+        rows = note_rows(
+            topic=st.session_state.get("rn_topic") or "",
+            owner=st.session_state.get("rn_owner") or "",
+            date_s=date_s,
+            author=st.session_state.get("rn_author") or "",
+            content=st.session_state.get("rn_content") or "",
+            results=st.session_state.get("rn_results") or "",
+            etc=st.session_state.get("rn_etc") or "",
+        )
+        title = "연구노트"
+        tall = {"내 용", "연구결과", "기타내용"}
     body = []
     for label, val in rows:
-        min_h = "140px" if label == "내 용" else ("90px" if label in tall else "36px")
+        if label in {"내 용", "논의내용"}:
+            min_h = "140px"
+        elif label in tall:
+            min_h = "90px"
+        else:
+            min_h = "36px"
         body.append(
             f"""<tr>
   <th style="width:22%;background:#f0f0f0;text-align:center;vertical-align:middle;
@@ -2189,7 +2373,7 @@ def _rn_preview_html() -> str:
         )
     return f"""
 <div style="font-family:'Malgun Gothic','맑은 고딕',sans-serif;color:#111;">
-  <div style="text-align:center;font-size:22px;font-weight:700;margin:8px 0 14px;">연구노트</div>
+  <div style="text-align:center;font-size:22px;font-weight:700;margin:8px 0 14px;">{escape(title)}</div>
   <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
     {''.join(body)}
   </table>
