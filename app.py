@@ -2074,6 +2074,11 @@ def _research_note_panel() -> None:
                 key="rn_audio",
                 help="녹음 → 받아쓰기(가능하면) 또는 트랜스크립트 붙여넣기 → 회의록 초안",
             )
+            # Apply STT result before the widget is created (Streamlit forbids
+            # mutating a widget key after instantiation).
+            pending = st.session_state.pop("mt_transcript_pending", None)
+            if pending is not None:
+                st.session_state.mt_transcript = pending
             st.text_area(
                 "트랜스크립트 (받아쓰기 결과 / 직접 붙여넣기)",
                 height=140,
@@ -2087,7 +2092,7 @@ def _research_note_panel() -> None:
                     with st.spinner("음성 변환 중… (첫 실행은 모델 다운로드로 시간이 걸릴 수 있습니다)"):
                         text, err = transcribe_audio_bytes(audio.getvalue(), audio.name)
                     if text:
-                        st.session_state.mt_transcript = text
+                        st.session_state.mt_transcript_pending = text
                         st.success(f"변환됨 · `{audio.name}`")
                         st.rerun()
                     else:
