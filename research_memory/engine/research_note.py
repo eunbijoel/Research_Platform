@@ -13,14 +13,11 @@ from research_memory.engine.llm import LLMConnectionError, generate_text, llm_av
 
 MODE_RESEARCH = "research"
 MODE_MEETING = "meeting"
-NOTE_MODES = (MODE_RESEARCH, MODE_MEETING)
 
 MODE_LABELS = {
     MODE_RESEARCH: "연구노트",
     MODE_MEETING: "회의록",
 }
-
-AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".webm", ".ogg", ".flac", ".aac"}
 
 RESEARCH_NOTE_SECTIONS = """
 아래 형식을 그대로 지켜 작성하세요. 각 제목은 반드시 줄의 시작에 쓰고, 마크다운(#, **)은 쓰지 마세요.
@@ -223,12 +220,6 @@ def _fallback_meeting_summary(text: str, filenames: list[str]) -> str:
         f"결정사항:\n확인 필요\n\n"
         f"Action Item:\n확인 필요"
     )
-
-
-def is_audio_filename(name: str) -> bool:
-    from pathlib import Path
-
-    return Path(name or "").suffix.lower() in AUDIO_EXTENSIONS
 
 
 _whisper_model = None

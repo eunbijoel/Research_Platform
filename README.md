@@ -113,7 +113,7 @@ app.py                 UI
 research_memory/
   pipeline/            문서 파싱 · 메타/Fact · 인제스트
   kb/                  Knowledge Base
-  engine/              Chat · Similarity · Proposal · Schedule · Tracking
+  engine/              Chat · Similarity · Proposal · Schedule · Research Note
                  docsim/  (유사도: MiniLM · 파서 · pHash)
 ```
 

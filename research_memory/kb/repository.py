@@ -478,7 +478,7 @@ class KnowledgeRepository:
             "last_rebuild": self.last_index_status,
         }
 
-    # --- Phase 4: projects / milestones (Tracking) ---
+    # --- Projects ---
 
     def upsert_project(
         self,
@@ -533,7 +533,6 @@ class KnowledgeRepository:
             rows = conn.execute(
                 """
                 SELECT p.*,
-                       (SELECT COUNT(*) FROM milestones m WHERE m.project_id = p.project_id) AS milestone_count,
                        (SELECT COUNT(*) FROM schedule_items s WHERE s.project_id = p.project_id) AS schedule_count,
                        (SELECT COUNT(*) FROM documents d
                         WHERE d.project_id = p.project_id AND d.status = 'ready') AS document_count
@@ -552,7 +551,7 @@ class KnowledgeRepository:
             return dict(row) if row else None
 
     def delete_project_folder(self, project_id: str) -> dict[str, Any]:
-        """Delete project registry + all documents/chunks/facts/milestones for that project."""
+        """Delete project registry + all documents/chunks/facts/schedule items for that project."""
         project_id = (project_id or "").strip()
         if not project_id:
             raise ValueError("project_id required")
@@ -574,7 +573,7 @@ class KnowledgeRepository:
         return {"ok": True, "project_id": project_id, "deleted_documents": len(doc_ids)}
 
     def rename_project(self, old_project_id: str, new_project_id: str) -> dict[str, Any]:
-        """Rename a project folder and retarget documents/milestones."""
+        """Rename a project folder and retarget documents/schedule items."""
         old_id = (old_project_id or "").strip()
         new_id = (new_project_id or "").strip()
         if not old_id or not new_id:
@@ -635,85 +634,6 @@ class KnowledgeRepository:
                 (new_id, old_id),
             )
         return {"ok": True, "project_id": new_id, "from": old_id, "renamed": True}
-
-    def add_milestone(
-        self,
-        *,
-        project_id: str,
-        title: str,
-        due_date: str = "",
-        deliverable_type: str = "other",
-        expected_keywords: str = "",
-        status: str = "planned",
-        notes: str = "",
-        linked_document_id: str = "",
-    ) -> str:
-        mid = str(uuid.uuid4())
-        with self._conn() as conn:
-            conn.execute(
-                """
-                INSERT INTO milestones (
-                    id, project_id, title, due_date, deliverable_type, expected_keywords,
-                    status, linked_document_id, notes, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    mid,
-                    project_id,
-                    title,
-                    due_date,
-                    deliverable_type,
-                    expected_keywords,
-                    status,
-                    linked_document_id or None,
-                    notes,
-                    _utc_now(),
-                ),
-            )
-        return mid
-
-    def update_milestone(self, milestone_id: str, **fields: Any) -> None:
-        allowed = {
-            "title",
-            "due_date",
-            "deliverable_type",
-            "expected_keywords",
-            "status",
-            "linked_document_id",
-            "notes",
-        }
-        updates = {k: v for k, v in fields.items() if k in allowed}
-        if not updates:
-            return
-        cols = ", ".join(f"{k}=?" for k in updates)
-        values = list(updates.values()) + [milestone_id]
-        with self._conn() as conn:
-            conn.execute(f"UPDATE milestones SET {cols} WHERE id=?", values)
-
-    def list_milestones(self, project_id: str) -> list[dict[str, Any]]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                """
-                SELECT * FROM milestones
-                WHERE project_id = ?
-                ORDER BY CASE WHEN due_date IS NULL OR due_date = '' THEN 1 ELSE 0 END,
-                         due_date ASC, created_at ASC
-                """,
-                (project_id,),
-            ).fetchall()
-            return [dict(r) for r in rows]
-
-    def list_documents_for_project(self, project_id: str) -> list[dict[str, Any]]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                """
-                SELECT * FROM documents
-                WHERE project_id = ? AND status = 'ready'
-                ORDER BY created_at ASC
-                """,
-                (project_id,),
-            ).fetchall()
-            return [_enrich_document(dict(r)) for r in rows]  # type: ignore[misc]
 
     # --- Project schedule / calendar ---
 

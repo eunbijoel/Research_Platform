@@ -115,7 +115,6 @@ ensure_data_dirs()
 repo = KnowledgeRepository()
 
 PAGE_HOME = "Home"
-PAGE_LIBRARY = "Library"  # legacy; redirects to Home
 PAGE_CHAT = "Research Chat"
 PAGE_PROPOSAL = "Proposal Intelligence"
 PAGE_SIMILARITY = "Similarity Intelligence"
@@ -133,8 +132,6 @@ MAIN_NAV = [
 
 
 def _go(page: str, *, focus_upload: bool = False, doc_id: str | None = None) -> None:
-    if page == PAGE_LIBRARY:
-        page = PAGE_HOME
     if focus_upload:
         st.session_state.home_focus_upload = True
         page = PAGE_HOME
@@ -649,7 +646,8 @@ def main() -> None:
                 st.success(f"chunks={n} · {repo.last_index_status}")
 
     page = st.session_state.page
-    if page == PAGE_LIBRARY:
+    if page == "Library":
+        # Legacy session value after Library tab removal.
         st.session_state.page = PAGE_HOME
         page = PAGE_HOME
     if page == PAGE_HOME:

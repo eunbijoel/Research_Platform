@@ -115,7 +115,7 @@ app.py                 UI (Streamlit)
 research_memory/
   pipeline/            Document parsing · metadata/fact extraction · ingest
   kb/                  Knowledge Base (SQLite + hybrid index)
-  engine/              Chat · Similarity · Proposal · Schedule · Tracking
+  engine/              Chat · Similarity · Proposal · Schedule · Research Note
                  docsim/  (similarity: MiniLM · parsers · pHash)
 ```
 
