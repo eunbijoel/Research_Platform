@@ -31,6 +31,14 @@ from research_memory.engine.llm import (
     list_ollama_models,
     set_active_model,
 )
+from research_memory.engine import research_note as research_note_engine
+
+if not hasattr(research_note_engine, "MODE_LABELS"):
+    sys.modules.pop("research_memory.engine.research_note", None)
+    research_note_engine = importlib.reload(
+        importlib.import_module("research_memory.engine.research_note")
+    )
+
 from research_memory.engine.research_note import (
     MODE_LABELS,
     MODE_MEETING,
@@ -45,6 +53,7 @@ from research_memory.engine.research_note import (
     note_rows,
     parse_meeting_note_fields,
     parse_research_note_fields,
+    stt_available,
     transcribe_audio_bytes,
 )
 from research_memory.pipeline.extractors import extract_chunks
@@ -2027,6 +2036,13 @@ def _research_note_panel() -> None:
 
         if mode == MODE_MEETING:
             st.markdown("**녹음 기반 (회의록)**")
+            if stt_available():
+                st.caption("자동 받아쓰기: ON (faster-whisper) · 첫 변환 시 모델 다운로드가 있을 수 있습니다.")
+            else:
+                st.caption(
+                    "자동 받아쓰기: OFF — `pip install faster-whisper` 후 앱 재시작, "
+                    "또는 트랜스크립트를 붙여넣으세요."
+                )
             audio = st.file_uploader(
                 "회의 녹음 파일",
                 type=["mp3", "wav", "m4a", "webm", "ogg", "flac"],
@@ -2044,7 +2060,7 @@ def _research_note_panel() -> None:
                 st.session_state.mt_recording_name = audio.name
                 st.session_state.mt_recording_bytes = audio.getvalue()
                 if st.button("녹음 → 텍스트 변환 시도", key="rn_transcribe"):
-                    with st.spinner("음성 변환 중… (faster-whisper / whisper가 있으면 사용)"):
+                    with st.spinner("음성 변환 중… (첫 실행은 모델 다운로드로 시간이 걸릴 수 있습니다)"):
                         text, err = transcribe_audio_bytes(audio.getvalue(), audio.name)
                     if text:
                         st.session_state.mt_transcript = text
@@ -2134,8 +2150,9 @@ def _research_note_panel() -> None:
                 "1. Project 선택\n"
                 "2. **녹음 파일 + 트랜스크립트**(또는 Memory/메모)\n"
                 "3. **통합 요약 생성** → 표 편집 → 다운로드 / Memory 저장\n\n"
-                "자동 받아쓰기는 `faster-whisper`/`openai-whisper`가 있을 때 시도합니다. "
-                "없으면 트랜스크립트를 붙여넣으면 됩니다."
+                "자동 받아쓰기는 faster-whisper로 동작합니다. "
+                "첫 변환은 모델 다운로드로 시간이 걸릴 수 있고, "
+                "실패 시 트랜스크립트를 붙여넣으면 됩니다."
             )
         else:
             st.info(

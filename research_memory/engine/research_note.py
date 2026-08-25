@@ -231,14 +231,38 @@ def is_audio_filename(name: str) -> bool:
     return Path(name or "").suffix.lower() in AUDIO_EXTENSIONS
 
 
+_whisper_model = None
+
+
+def stt_available() -> bool:
+    try:
+        import faster_whisper  # noqa: F401
+
+        return True
+    except ImportError:
+        pass
+    try:
+        import whisper  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def transcribe_audio_bytes(data: bytes, filename: str = "audio.wav") -> tuple[str, str]:
     """Best-effort local STT. Returns (transcript, error).
 
-    Tries ``faster_whisper`` then ``whisper`` if installed. No hard dependency —
-    callers should fall back to pasted transcript when this fails.
+    Prefers ``faster_whisper``, then ``openai-whisper``.
     """
     if not data:
         return "", "빈 오디오 파일입니다."
+    if not stt_available():
+        return (
+            "",
+            "자동 받아쓰기를 쓸 수 없습니다. "
+            "프로젝트 venv에 `pip install faster-whisper` 후 앱을 재시작하거나, "
+            "트랜스크립트를 직접 붙여넣어 주세요.",
+        )
     try:
         import tempfile
         from pathlib import Path
@@ -248,39 +272,41 @@ def transcribe_audio_bytes(data: bytes, filename: str = "audio.wav") -> tuple[st
             tmp.write(data)
             path = tmp.name
         try:
-            text = _transcribe_with_faster_whisper(path)
+            err = ""
+            try:
+                text = _transcribe_with_faster_whisper(path)
+            except Exception as exc:  # noqa: BLE001
+                text, err = "", f"faster-whisper 변환 실패: {exc}"
             if text:
                 return text, ""
-            text = _transcribe_with_whisper(path)
+            try:
+                text = _transcribe_with_whisper(path)
+            except Exception as exc:  # noqa: BLE001
+                text, err = "", f"whisper 변환 실패: {exc}"
             if text:
                 return text, ""
+            return "", err or "음성을 텍스트로 변환하지 못했습니다. 파일 형식·길이를 확인해 주세요."
         finally:
             Path(path).unlink(missing_ok=True)
     except Exception as exc:  # noqa: BLE001
         return "", f"음성 변환 실패: {exc}"
-    return (
-        "",
-        "자동 받아쓰기를 쓸 수 없습니다. "
-        "`faster-whisper` 또는 `openai-whisper` 설치 후 다시 시도하거나, "
-        "트랜스크립트를 직접 붙여넣어 주세요.",
-    )
 
 
 def _transcribe_with_faster_whisper(path: str) -> str:
-    try:
-        from faster_whisper import WhisperModel  # type: ignore
-    except ImportError:
-        return ""
-    model = WhisperModel("base", device="cpu", compute_type="int8")
-    segments, _info = model.transcribe(path, language="ko")
-    return "\n".join(seg.text.strip() for seg in segments if seg.text and seg.text.strip()).strip()
+    global _whisper_model
+    from faster_whisper import WhisperModel  # type: ignore
+
+    if _whisper_model is None:
+        _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+    segments, _info = _whisper_model.transcribe(path, language="ko")
+    return "\n".join(
+        seg.text.strip() for seg in segments if seg.text and seg.text.strip()
+    ).strip()
 
 
 def _transcribe_with_whisper(path: str) -> str:
-    try:
-        import whisper  # type: ignore
-    except ImportError:
-        return ""
+    import whisper  # type: ignore
+
     model = whisper.load_model("base")
     result = model.transcribe(path, language="ko")
     return str((result or {}).get("text") or "").strip()
