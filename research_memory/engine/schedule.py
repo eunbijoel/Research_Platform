@@ -4,7 +4,7 @@ from __future__ import annotations
 import calendar
 import re
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from research_memory.kb.repository import KnowledgeRepository
@@ -79,6 +79,96 @@ def chip_time_and_title(title: str | None, note: str | None = None) -> tuple[str
     return None, raw_title
 
 
+def item_date_range(item: dict[str, Any]) -> tuple[date, date] | None:
+    start_s = str(item.get("date") or "").strip()[:10]
+    end_s = str(item.get("end_date") or "").strip()[:10] or start_s
+    if not start_s:
+        return None
+    try:
+        start = date.fromisoformat(start_s)
+        end = date.fromisoformat(end_s)
+    except ValueError:
+        return None
+    if end < start:
+        start, end = end, start
+    return start, end
+
+
+def layout_week_bars(
+    week: list[date],
+    by_day: dict[str, list[dict[str, Any]]],
+    *,
+    max_lanes: int = 3,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Pack events into week lanes; multi-day items become one continuous segment."""
+    week_start = week[0]
+    week_end = week[-1]
+    unique: dict[str, dict[str, Any]] = {}
+    for day in week:
+        for it in by_day.get(day.isoformat(), []):
+            iid = str(it.get("id") or "")
+            if iid and iid not in unique:
+                unique[iid] = it
+
+    candidates: list[dict[str, Any]] = []
+    for it in unique.values():
+        span = item_date_range(it)
+        if not span:
+            continue
+        start, end = span
+        if end < week_start or start > week_end:
+            continue
+        seg_start = max(start, week_start)
+        seg_end = min(end, week_end)
+        col_start = (seg_start - week_start).days
+        col_end = (seg_end - week_start).days
+        candidates.append(
+            {
+                "item": it,
+                "col_start": col_start,
+                "col_end": col_end,
+                "seg_start": seg_start,
+                "continues_before": start < week_start,
+                "continues_after": end > week_end,
+                "is_multi": start != end,
+            }
+        )
+
+    candidates.sort(
+        key=lambda c: (
+            c["col_start"],
+            -(c["col_end"] - c["col_start"]),
+            str((c["item"] or {}).get("title") or ""),
+        )
+    )
+
+    lane_last_end: list[int] = []
+    placed: list[dict[str, Any]] = []
+    overflow_items: list[dict[str, Any]] = []
+    for cand in candidates:
+        lane = None
+        for idx, last_end in enumerate(lane_last_end):
+            if cand["col_start"] > last_end:
+                lane = idx
+                break
+        if lane is None:
+            if len(lane_last_end) >= max_lanes:
+                overflow_items.append(cand)
+                continue
+            lane = len(lane_last_end)
+            lane_last_end.append(cand["col_end"])
+        else:
+            lane_last_end[lane] = cand["col_end"]
+        placed.append({**cand, "lane": lane})
+
+    overflow_by_day: dict[str, int] = defaultdict(int)
+    for cand in overflow_items:
+        for col in range(cand["col_start"], cand["col_end"] + 1):
+            overflow_by_day[week[col].isoformat()] += 1
+
+    return placed, dict(overflow_by_day)
+
+
 def render_calendar_html(
     *,
     year: int,
@@ -90,7 +180,7 @@ def render_calendar_html(
     selected_item_id: str | None = None,
     max_chips: int = 3,
 ) -> str:
-    """Render myown-style month grid as HTML (Sun start, 6 weeks)."""
+    """Render month grid with continuous multi-day bars across week cells."""
     import html as html_mod
 
     weekday_labels = ["일", "월", "화", "수", "목", "금", "토"]
@@ -100,11 +190,13 @@ def render_calendar_html(
     parts.append('</div><div class="rm-cal-html-body">')
 
     for week in grid:
+        bars, overflow_by_day = layout_week_bars(week, by_day, max_lanes=max_chips)
+        parts.append('<div class="rm-cal-html-week">')
+        parts.append('<div class="rm-cal-html-week-cells">')
         for day in week:
             date_key = day.isoformat()
             in_month = day.month == month
             day_items = by_day.get(date_key, [])
-            preview_items = day_items[:max_chips]
             cell_classes = ["rm-cal-html-cell"]
             if not in_month:
                 cell_classes.append("out")
@@ -129,47 +221,59 @@ def render_calendar_html(
                 f'data-sched-date="{html_mod.escape(date_key)}" '
                 f'aria-label="{html_mod.escape(date_key)} 일정 추가"></button>'
             )
-            parts.append('<div class="rm-cal-html-chips">')
-            for it in preview_items:
+            more = overflow_by_day.get(date_key, 0)
+            if more:
+                parts.append(f'<div class="rm-cal-html-more">+{more}</div>')
+            parts.append("</div>")
+        parts.append("</div>")  # week-cells
+
+        if bars:
+            parts.append('<div class="rm-cal-html-week-bars">')
+            for bar in bars:
+                it = bar["item"]
                 iid = html_mod.escape(str(it["id"]))
                 chip_time, chip_title = chip_time_and_title(
                     str(it.get("title") or ""),
                     str(it.get("note") or ""),
                 )
-                chip_title_esc = html_mod.escape(chip_title)
                 chip_cls = event_chip_class(it.get("event_type"), it.get("status"))
                 if selected_item_id == it["id"]:
                     chip_cls += " selected"
-                span_label = schedule_date_label(it)
-                start_s = str(it.get("date") or "")[:10]
-                end_s = str(it.get("end_date") or start_s)[:10]
-                if end_s and end_s != start_s:
+                if bar["is_multi"]:
                     chip_cls += " multi"
-                time_html = ""
-                if chip_time and date_key == start_s:
-                    time_html = (
-                        f'<span class="rm-cal-html-chip-time">'
-                        f'{html_mod.escape(chip_time)}</span>'
-                    )
-                tip_bits = []
-                if span_label:
-                    tip_bits.append(span_label)
+                if bar["continues_before"]:
+                    chip_cls += " cont-left"
+                if bar["continues_after"]:
+                    chip_cls += " cont-right"
+                if bar["col_end"] > bar["col_start"]:
+                    chip_cls += " span"
+
+                tip_bits = [schedule_date_label(it)]
                 if chip_time:
                     tip_bits.append(chip_time)
                 tip_bits.append(chip_title)
-                tooltip = html_mod.escape(" · ".join(tip_bits))
+                tooltip = html_mod.escape(" · ".join(b for b in tip_bits if b))
+
+                # CSS grid columns are 1-indexed; end is exclusive in grid-column.
+                c0 = int(bar["col_start"]) + 1
+                c1 = int(bar["col_end"]) + 2
+                lane = int(bar["lane"]) + 1
+                seg_date = bar["seg_start"].isoformat()
+                label = chip_title
+                if chip_time and not bar["continues_before"]:
+                    label = f"{chip_time} {chip_title}"
+                label_esc = html_mod.escape(label)
+
                 parts.append(
-                    f'<button type="button" class="rm-cal-html-chip {chip_cls}" '
-                    f'data-sched-date="{html_mod.escape(date_key)}" '
-                    f'data-sched-item="{iid}" title="{tooltip}">{time_html}'
-                    f'<span class="rm-cal-html-chip-title">{chip_title_esc}</span></button>'
+                    f'<button type="button" class="rm-cal-html-bar {chip_cls}" '
+                    f'style="--c0:{c0};--c1:{c1};--lane:{lane};" '
+                    f'data-sched-date="{html_mod.escape(seg_date)}" '
+                    f'data-sched-item="{iid}" title="{tooltip}">'
+                    f'<span class="rm-cal-html-bar-title">{label_esc}</span></button>'
                 )
             parts.append("</div>")
-            if len(day_items) > max_chips:
-                parts.append(
-                    f'<div class="rm-cal-html-more">+{len(day_items) - max_chips}</div>'
-                )
-            parts.append("</div>")
+
+        parts.append("</div>")  # week
 
     parts.append("</div></div>")
     return "".join(parts)
@@ -196,8 +300,7 @@ CALENDAR_IFRAME_CSS = """
   margin: 0 0 0.85rem;
 }
 .rm-cal-html { width: 100%; }
-.rm-cal-html-head,
-.rm-cal-html-body {
+.rm-cal-html-head {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 0.5rem;
@@ -212,8 +315,20 @@ CALENDAR_IFRAME_CSS = """
 .rm-cal-html-wd:first-child { color: #ef4444; }
 .rm-cal-html-wd:last-child { color: #3b82f6; }
 .rm-cal-html-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   min-height: 33rem;
-  grid-auto-rows: minmax(7.25rem, 1fr);
+}
+.rm-cal-html-week {
+  position: relative;
+  min-height: 7.25rem;
+}
+.rm-cal-html-week-cells {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.5rem;
+  min-height: 7.25rem;
 }
 .rm-cal-html-cell {
   position: relative;
@@ -228,10 +343,9 @@ CALENDAR_IFRAME_CSS = """
   overflow: hidden;
   user-select: none;
   cursor: pointer;
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  transition: box-shadow 0.18s ease;
 }
 .rm-cal-html-cell:hover {
-  transform: translateY(-2px);
   box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
   z-index: 2;
 }
@@ -256,7 +370,7 @@ CALENDAR_IFRAME_CSS = """
 }
 .rm-cal-html-daynum,
 .rm-cal-html-hit,
-.rm-cal-html-chip {
+.rm-cal-html-bar {
   appearance: none;
   -webkit-appearance: none;
   border: 0;
@@ -265,7 +379,7 @@ CALENDAR_IFRAME_CSS = """
 }
 .rm-cal-html-daynum {
   position: relative;
-  z-index: 2;
+  z-index: 6;
   font-size: 0.875rem;
   font-weight: 600;
   color: #0f172a;
@@ -283,60 +397,88 @@ CALENDAR_IFRAME_CSS = """
   background: transparent;
   padding: 0;
 }
-.rm-cal-html-chips {
-  position: relative;
-  z-index: 3;
-  display: flex;
-  flex-direction: column;
-  gap: 0.18rem;
-  margin-top: 0.1rem;
-  min-height: 0;
-  flex: 1;
+.rm-cal-html-week-bars {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2.15rem;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-rows: 1.35rem;
+  gap: 0.18rem 0.5rem;
+  z-index: 5;
+  pointer-events: none;
 }
-.rm-cal-html-chip {
+.rm-cal-html-bar {
+  grid-column: var(--c0) / var(--c1);
+  grid-row: var(--lane);
+  pointer-events: auto;
   display: flex;
   align-items: center;
-  gap: 0.25rem;
   min-width: 0;
+  height: 1.35rem;
   font-size: 0.75rem;
-  line-height: 1.25rem;
+  line-height: 1.2;
   font-weight: 500;
-  padding: 0.08rem 0.35rem;
+  padding: 0 0.4rem;
   border-radius: 0.25rem;
   background: #dbeafe;
   color: #1d4ed8;
   text-align: left;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
 }
-.rm-cal-html-chip-time {
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
+.rm-cal-html-bar.span {
+  border-radius: 0.3rem;
 }
-.rm-cal-html-chip-title {
+.rm-cal-html-bar.cont-left {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  padding-left: 0.55rem;
+}
+.rm-cal-html-bar.cont-left::before {
+  content: "";
+  position: absolute;
+  left: 0.15rem;
+  width: 0;
+  height: 0;
+  border-top: 0.28rem solid transparent;
+  border-bottom: 0.28rem solid transparent;
+  border-right: 0.32rem solid currentColor;
+  opacity: 0.55;
+}
+.rm-cal-html-bar.cont-right {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.rm-cal-html-bar {
+  position: relative;
+}
+.rm-cal-html-bar-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.rm-cal-html-chip:hover { filter: brightness(0.97); }
-.rm-cal-html-chip.rm-chip-submission { background: #ffedd5; color: #c2410c; }
-.rm-cal-html-chip.rm-chip-task { background: #f1f5f9; color: #475569; }
-.rm-cal-html-chip.rm-chip-milestone { background: #fee2e2; color: #b91c1c; }
-.rm-cal-html-chip.rm-chip-done {
+.rm-cal-html-bar:hover { filter: brightness(0.97); }
+.rm-cal-html-bar.rm-chip-submission { background: #ffedd5; color: #c2410c; }
+.rm-cal-html-bar.rm-chip-task { background: #f1f5f9; color: #475569; }
+.rm-cal-html-bar.rm-chip-milestone { background: #fee2e2; color: #b91c1c; }
+.rm-cal-html-bar.rm-chip-meeting { background: #dbeafe; color: #1d4ed8; }
+.rm-cal-html-bar.rm-chip-done {
   background: #f1f5f9;
   color: #64748b;
   text-decoration: line-through;
 }
-.rm-cal-html-chip.selected { box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.35); }
-.rm-cal-html-chip.multi {
-  border-left: 3px solid currentColor;
-  padding-left: 0.28rem;
+.rm-cal-html-bar.selected { box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.4); }
+.rm-cal-html-bar.multi {
+  font-weight: 600;
 }
 .rm-cal-html-more {
   position: relative;
   z-index: 3;
+  margin-top: auto;
   font-size: 0.72rem;
   color: #64748b;
-  margin-top: 0.05rem;
 }
 """
 
@@ -345,7 +487,7 @@ CALENDAR_CLICK_JS = """
   if (window.__rmCalClickBound) return;
   window.__rmCalClickBound = true;
   document.addEventListener("click", function (event) {
-    var chip = event.target.closest(".rm-cal-html-chip");
+    var chip = event.target.closest(".rm-cal-html-chip, .rm-cal-html-bar");
     var cell = event.target.closest(".rm-cal-html-cell");
     var dateKey = "";
     var itemId = "";
@@ -411,22 +553,15 @@ def list_month_items(
 
 def items_by_date(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """Group items by each calendar day they cover (supports multi-day ranges)."""
-    from datetime import timedelta
-
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for item in items:
-        start_s = str(item.get("date") or "").strip()[:10]
-        end_s = str(item.get("end_date") or "").strip()[:10] or start_s
-        if not start_s:
+        span = item_date_range(item)
+        if not span:
+            start_s = str(item.get("date") or "").strip()[:10]
+            if start_s:
+                grouped[start_s].append(item)
             continue
-        try:
-            start = date.fromisoformat(start_s)
-            end = date.fromisoformat(end_s)
-        except ValueError:
-            grouped[start_s].append(item)
-            continue
-        if end < start:
-            start, end = end, start
+        start, end = span
         cursor = start
         while cursor <= end:
             day_items = grouped[cursor.isoformat()]

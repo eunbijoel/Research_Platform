@@ -78,7 +78,7 @@ from research_memory.engine.similarity import (
 from research_memory.engine import schedule as schedule_engine
 
 if not hasattr(schedule_engine, "CALENDAR_CLICK_JS") or not hasattr(
-    schedule_engine, "item_overlaps_month"
+    schedule_engine, "layout_week_bars"
 ):
     schedule_engine = importlib.reload(schedule_engine)
 
