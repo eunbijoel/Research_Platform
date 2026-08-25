@@ -115,7 +115,7 @@ ensure_data_dirs()
 repo = KnowledgeRepository()
 
 PAGE_HOME = "Home"
-PAGE_LIBRARY = "Library"
+PAGE_LIBRARY = "Library"  # legacy; redirects to Home
 PAGE_CHAT = "Research Chat"
 PAGE_PROPOSAL = "Proposal Intelligence"
 PAGE_SIMILARITY = "Similarity Intelligence"
@@ -125,7 +125,6 @@ PAGE_RESEARCH_NOTE = "Research Note"
 MAIN_NAV = [
     (PAGE_HOME, "🏠 홈"),
     (PAGE_SCHEDULE, "📅 일정 관리"),
-    (PAGE_LIBRARY, "📚 라이브러리"),
     (PAGE_CHAT, "💬 채팅"),
     (PAGE_RESEARCH_NOTE, "📝 연구 기록"),
     (PAGE_PROPOSAL, "🖊️ 제안서"),
@@ -134,16 +133,13 @@ MAIN_NAV = [
 
 
 def _go(page: str, *, focus_upload: bool = False, doc_id: str | None = None) -> None:
+    if page == PAGE_LIBRARY:
+        page = PAGE_HOME
     if focus_upload:
         st.session_state.home_focus_upload = True
         page = PAGE_HOME
     st.session_state.page = page
-    if page == PAGE_LIBRARY:
-        if doc_id:
-            st.session_state.library_selected_id = doc_id
-        else:
-            st.session_state.pop("library_selected_id", None)
-    elif doc_id:
+    if doc_id:
         st.session_state.library_selected_id = doc_id
     st.rerun()
 
@@ -652,10 +648,11 @@ def main() -> None:
             st.success(f"chunks={n} · {repo.last_index_status}")
 
     page = st.session_state.page
+    if page == PAGE_LIBRARY:
+        st.session_state.page = PAGE_HOME
+        page = PAGE_HOME
     if page == PAGE_HOME:
         _home_page()
-    elif page == PAGE_LIBRARY:
-        _library_page()
     elif page == PAGE_CHAT:
         _chat_page()
     elif page == PAGE_RESEARCH_NOTE:
@@ -692,9 +689,24 @@ def _roadmap_banner(title: str, blurb: str) -> None:
 
 def _home_page() -> None:
     stats = _kb_stats()
-    empty = stats["doc_count"] == 0
     docs = stats["docs"]
     focus_upload = bool(st.session_state.pop("home_focus_upload", False))
+
+    selected_id = st.session_state.get("library_selected_id")
+    if selected_id and any(d["id"] == selected_id for d in docs):
+        _document_detail(selected_id, docs)
+        return
+
+    if st.session_state.get("library_view") == "project_docs":
+        if st.button("← Projects", key="home_to_projects_from_docs"):
+            st.session_state.library_view = "projects"
+            st.session_state.pop("library_project_focus", None)
+            st.rerun()
+        pid = st.session_state.get("library_project_focus") or ""
+        _library_project_docs_view(docs, pid)
+        return
+
+    empty = stats["doc_count"] == 0
 
     st.title("Research Memory")
     if empty:
@@ -740,7 +752,7 @@ def _home_page() -> None:
             cols = st.columns([5, 1])
             cols[0].markdown(f"**{label}**  \n{day}")
             if cols[1].button("Open", key=f"home-open-{d['id']}"):
-                _go(PAGE_LIBRARY, doc_id=d["id"])
+                _go(PAGE_HOME, doc_id=d["id"])
 
     if empty:
         st.markdown("---")
@@ -749,51 +761,11 @@ def _home_page() -> None:
             """
 1. **Upload Documents** — add proposals, notes, papers, and meeting records  
 ↓  
-2. **Explore Library** — browse what the center has done  
+2. **Browse Projects** — open a project folder to explore Memory  
 ↓  
 3. **Ask with Evidence** — Research Chat answers only with citations
 """
         )
-
-
-def _library_page() -> None:
-    st.title("Library")
-    st.caption("Browse research by project folder.")
-
-    docs = repo.list_documents()
-
-    if not docs:
-        st.info("Memory is empty. Upload documents on Home to build Research Memory.")
-        _library_projects_view(docs)
-        if st.button("Go to Home · Upload", use_container_width=True, key="lib_empty_home"):
-            _go(PAGE_HOME, focus_upload=True)
-        return
-
-    selected_id = st.session_state.get("library_selected_id")
-    if selected_id and any(d["id"] == selected_id for d in docs):
-        _document_detail(selected_id, docs)
-        return
-
-    if "library_view" not in st.session_state:
-        st.session_state.library_view = "projects"
-
-    view = st.session_state.library_view
-    if view == "search":
-        # Search moved to Home — bounce old session state back to projects.
-        st.session_state.library_view = "projects"
-        st.session_state.pop("library_project_focus", None)
-        view = "projects"
-
-    if view == "project_docs":
-        if st.button("← Projects", key="lib_to_projects_from_docs"):
-            st.session_state.library_view = "projects"
-            st.session_state.pop("library_project_focus", None)
-            st.rerun()
-        pid = st.session_state.get("library_project_focus") or ""
-        _library_project_docs_view(docs, pid)
-        return
-
-    _library_projects_view(docs)
 
 
 def _library_projects_view(docs: list) -> None:
@@ -987,7 +959,8 @@ def _project_card(project_id: str, docs: list, meta: dict | None = None) -> None
         st.session_state.library_view = "project_docs"
         st.session_state.library_project_focus = project_id
         st.session_state.pop("library_selected_id", None)
-        _go(PAGE_LIBRARY)
+        st.session_state.page = PAGE_HOME
+        st.rerun()
     st.markdown(
         "<div style='border-bottom:1px solid #e5e7eb;margin:10px 0 14px;'></div>",
         unsafe_allow_html=True,
@@ -1164,7 +1137,7 @@ def _library_doc_list(docs: list, *, key_prefix: str) -> None:
         c1, c2 = st.columns([5, 1])
         c1.markdown(f"**{title}**  \n{meta}")
         if c2.button("Open", key=f"{key_prefix}-open-{d['id']}", use_container_width=True):
-            _go(PAGE_LIBRARY, doc_id=d["id"])
+            _go(PAGE_HOME, doc_id=d["id"])
 
 
 def _filter_documents(
@@ -1768,7 +1741,7 @@ def _chat_page() -> None:
     if not docs:
         st.warning("Your Knowledge Base is empty.")
         st.write(
-            "Explore Library after uploading documents, then come back to ask with evidence."
+            "Upload documents on Home, then come back to ask with evidence."
         )
         c1, c2 = st.columns(2)
         if c1.button("Go to Home · Upload", type="primary", use_container_width=True):
@@ -1792,7 +1765,7 @@ def _chat_page() -> None:
 
     prefill = st.session_state.get("chat_prefill")
     if prefill:
-        st.info(f"From Library: {prefill}")
+        st.info(f"From document: {prefill}")
         if st.button("Ask this question", type="primary"):
             st.session_state.pop("chat_prefill", None)
             st.session_state["_pending_question"] = prefill

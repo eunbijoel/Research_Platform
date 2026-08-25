@@ -34,7 +34,7 @@ flowchart TB
   end
 
   subgraph Use["Read · reuse with evidence"]
-    LIB[Library]
+    HOME[Home<br/>projects · search · upload]
     CHAT[Chat]
     NOTE[Research Note]
     PROP[Proposal]
@@ -48,13 +48,13 @@ flowchart TB
 
   U --> UP
   DI -->|update / append| KB
-  U --> LIB
+  U --> HOME
   U --> CHAT
   U --> NOTE
   U --> PROP
   U --> SIM
   U --> SCHED
-  LIB -->|browse| KB
+  HOME -->|browse| KB
   SIM -->|compare docs| KB
   SCHED -->|project dates| KB
   EVI -->|retrieve| IDX
@@ -64,7 +64,7 @@ flowchart TB
   PROP -.->|drafts return| UP
 ```
 
-Supported formats (Library / documents): PDF, DOCX, TXT/MD, CSV, XLSX, HWP/HWPX  
+Supported formats (documents): PDF, DOCX, TXT/MD, CSV, XLSX, HWP/HWPX  
 Meeting recordings: MP3, WAV, M4A, WEBM, OGG, FLAC (Research Notes · meeting mode, optional STT)
 
 Search: Ollama embeddings (`nomic-embed-text`) + TF-IDF combined via **hybrid (RRF)** fusion.
@@ -76,9 +76,8 @@ Falls back to TF-IDF only when embeddings are unavailable.
 
 | Tab | Description |
 | --- | --- |
-| **Home** | Research Memory dashboard. Recent documents, quick upload and browse. |
+| **Home** | Research Memory dashboard: projects, search, upload, recent documents, document detail/roles (research doc / reference), and Document Insight. |
 | **Schedule** | Monthly calendar for project meetings, submissions, tasks, and milestones. Click an empty day cell to add, click a chip to edit. (Notifications and external calendar sync are referenced from [myown](https://github.com/sumin-ma-1/myown).) |
-| **Library** | Browse, upload, and delete documents by project folder. Assign document roles (research doc / reference) and view Document Insight. |
 | **Chat** | Ask questions against Memory. Each answer cites its source (file, location) tagged as `[research doc]` or `[regulation]`. Refuses to answer without evidence. |
 | **Research Notes** | Draft research notes or meeting minutes. References Memory + uploads (meeting mode: recording/transcript). Table preview, DOCX/HWPX download, save to Memory. |
 | **Proposal** | Upload an RFP and generate a center-part draft with compliance points, grounded in **research docs + regulations**. This is not a full proposal auto-generator. |

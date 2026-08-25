@@ -34,7 +34,7 @@ flowchart TB
   end
 
   subgraph Use["Read · reuse with evidence"]
-    LIB[Library]
+    HOME[Home<br/>projects · search · upload]
     CHAT[Chat]
     NOTE[Research Note]
     PROP[Proposal]
@@ -48,13 +48,13 @@ flowchart TB
 
   U --> UP
   DI -->|update / append| KB
-  U --> LIB
+  U --> HOME
   U --> CHAT
   U --> NOTE
   U --> PROP
   U --> SIM
   U --> SCHED
-  LIB -->|browse| KB
+  HOME -->|browse| KB
   SIM -->|compare docs| KB
   SCHED -->|project dates| KB
   EVI -->|retrieve| IDX
@@ -66,7 +66,7 @@ flowchart TB
 
 
 
-지원 형식 (라이브러리/문서): PDF, DOCX, TXT/MD, CSV, XLSX, HWP/HWPX  
+지원 형식 (문서): PDF, DOCX, TXT/MD, CSV, XLSX, HWP/HWPX  
 회의록 녹음: MP3, WAV, M4A, WEBM, OGG, FLAC (연구 기록 · 회의록 모드, 선택적 STT)
 
 검색: Ollama 임베딩(`nomic-embed-text`) + TF-IDF를 **hybrid(RRF)** 로 결합.  
@@ -81,9 +81,8 @@ flowchart TB
 
 | Tab        | 하는 일                                                                                               |
 | ---------- | -------------------------------------------------------------------------------------------------- |
-| **홈**      | Research Memory 대시보드. 최근 문서·빠른 업로드/탐색 진입                                                           |
+| **홈**      | Research Memory 대시보드. 프로젝트·검색·업로드·최근 문서, 문서 상세·역할(연구문서/참고자료)·Document Insight |
 | **일정 관리**  | 과제별 회의·제출·작업·마일스톤을 월간 캘린더로 등록·조회(알림 및 외부 캘린더 연동은 [myown](https://github.com/sumin-ma-1/myown)을 참고) |
-| **라이브러리**  | 과제 폴더별 문서 탐색·업로드·삭제. 문서 역할(연구문서/참고자료)과 Document Insight                                            |
 | **채팅**     | Memory에 질문. 답변마다 출처(파일·위치)와 `[연구문서]`/`[참고규정]` 구분을 붙입니다. 근거가 없으면 거절합니다                              |
 | **연구 기록**  | 연구노트·회의록 초안. Memory + 추가자료(회의록은 녹음/트랜스크립트) 참고, 표 미리보기·DOCX/HWPX 다운로드·Memory 저장                     |
 | **제안서**    | RFP/공고문을 넣고, **연구문서 + 참고규정(운영요령)** 근거로 센터 파트 초안·준수 포인트를 만듭니다. 전체 제안서 자동완성이 아닙니다                    |
