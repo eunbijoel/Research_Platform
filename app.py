@@ -692,22 +692,38 @@ def _roadmap_banner(title: str, blurb: str) -> None:
 def _home_page() -> None:
     stats = _kb_stats()
     empty = stats["doc_count"] == 0
+    docs = stats["docs"]
 
+    st.title("Research Memory")
     if empty:
-        st.title("Research Memory")
         st.subheader(
             "Build an organizational research memory that understands your documents "
             "and answers with evidence."
         )
+    else:
+        st.caption("Organizational research dashboard")
+
+    if empty:
         c1, c2, c3 = st.columns(3)
         c1.metric("Documents", 0)
         c2.metric("Projects", stats["project_count"])
         c3.metric("Knowledge Chunks", 0)
+        st.info("과제는 준비되어 있습니다. 아래에서 프로젝트를 열거나 자료를 업로드하세요.")
+    else:
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Documents", stats["doc_count"])
+        c2.metric("Projects", stats["project_count"])
+        c3.metric("Chunks", stats["chunk_count"])
+        c4.metric("Last Updated", stats["last_indexed"])
 
-        st.info("과제는 준비되어 있습니다. Library에서 프로젝트별 자료를 업로드하세요.")
-        if st.button("+ Upload", type="primary", use_container_width=True):
-            _go(PAGE_LIBRARY, focus_upload=True)
+    st.markdown("#### 빠른 메뉴")
+    if st.button("+ Upload", type="primary", use_container_width=True):
+        _go(PAGE_LIBRARY, focus_upload=True)
 
+    st.markdown("---")
+    _library_projects_view(docs)
+
+    if empty:
         st.markdown("---")
         st.markdown("### How It Works")
         st.markdown(
@@ -721,27 +737,10 @@ def _home_page() -> None:
         )
         return
 
-    st.title("Research Memory")
-    st.caption("Organizational research dashboard")
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Documents", stats["doc_count"])
-    c2.metric("Projects", stats["project_count"])
-    c3.metric("Chunks", stats["chunk_count"])
-    c4.metric("Last Updated", stats["last_indexed"])
-
-    st.markdown("#### 빠른 메뉴")
-    q1, q2, q3 = st.columns(3)
-    if q1.button("+ Upload", type="primary", use_container_width=True):
-        _go(PAGE_LIBRARY, focus_upload=True)
-    if q2.button("+ Library", use_container_width=True):
-        _go(PAGE_LIBRARY)
-    if q3.button("+ Chat", use_container_width=True):
-        _go(PAGE_CHAT)
-
+    st.markdown("---")
     st.markdown("#### Recent Documents")
     st.caption("Open a document to explore Memory — then ask in Chat with context.")
-    recent = stats["docs"][:8]
+    recent = docs[:8]
     for d in recent:
         label = d.get("title") or d["filename"]
         meta = (
@@ -765,6 +764,8 @@ def _library_page() -> None:
 
     if not docs:
         st.info("Memory is empty. Upload documents below to build Research Memory.")
+        _library_projects_view(docs)
+        st.markdown("---")
         with st.expander("Upload Documents", expanded=True):
             _upload_panel()
         return
@@ -1001,7 +1002,8 @@ def _project_card(project_id: str, docs: list, meta: dict | None = None) -> None
     if st.button("Open", key=f"proj-open-{safe}", use_container_width=True):
         st.session_state.library_view = "project_docs"
         st.session_state.library_project_focus = project_id
-        st.rerun()
+        st.session_state.pop("library_selected_id", None)
+        _go(PAGE_LIBRARY)
     st.markdown(
         "<div style='border-bottom:1px solid #e5e7eb;margin:10px 0 14px;'></div>",
         unsafe_allow_html=True,
