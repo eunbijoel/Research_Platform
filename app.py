@@ -134,9 +134,10 @@ MAIN_NAV = [
 
 
 def _go(page: str, *, focus_upload: bool = False, doc_id: str | None = None) -> None:
-    st.session_state.page = page
     if focus_upload:
-        st.session_state.library_focus_upload = True
+        st.session_state.home_focus_upload = True
+        page = PAGE_HOME
+    st.session_state.page = page
     if page == PAGE_LIBRARY:
         if doc_id:
             st.session_state.library_selected_id = doc_id
@@ -693,6 +694,7 @@ def _home_page() -> None:
     stats = _kb_stats()
     empty = stats["doc_count"] == 0
     docs = stats["docs"]
+    focus_upload = bool(st.session_state.pop("home_focus_upload", False))
 
     st.title("Research Memory")
     if empty:
@@ -716,12 +718,29 @@ def _home_page() -> None:
         c3.metric("Chunks", stats["chunk_count"])
         c4.metric("Last Updated", stats["last_indexed"])
 
-    st.markdown("#### 빠른 메뉴")
-    if st.button("+ Upload", type="primary", use_container_width=True):
-        _go(PAGE_LIBRARY, focus_upload=True)
+    _library_projects_view(docs)
+
+    if not empty:
+        st.markdown("---")
+        st.markdown("### Search")
+        with st.expander("Search documents", expanded=False):
+            _library_search_view(docs, show_heading=False)
 
     st.markdown("---")
-    _library_projects_view(docs)
+    st.markdown("### Upload")
+    with st.expander("Upload Documents", expanded=focus_upload or empty):
+        _upload_panel()
+
+    if not empty:
+        st.markdown("---")
+        st.markdown("#### Recent Documents")
+        for d in docs[:3]:
+            label = d.get("title") or d["filename"]
+            day = str(d.get("created_at") or "")[:10] or "—"
+            cols = st.columns([5, 1])
+            cols[0].markdown(f"**{label}**  \n{day}")
+            if cols[1].button("Open", key=f"home-open-{d['id']}"):
+                _go(PAGE_LIBRARY, doc_id=d["id"])
 
     if empty:
         st.markdown("---")
@@ -735,39 +754,19 @@ def _home_page() -> None:
 3. **Ask with Evidence** — Research Chat answers only with citations
 """
         )
-        return
-
-    st.markdown("---")
-    st.markdown("#### Recent Documents")
-    st.caption("Open a document to explore Memory — then ask in Chat with context.")
-    recent = docs[:8]
-    for d in recent:
-        label = d.get("title") or d["filename"]
-        meta = (
-            f"{d.get('doc_type') or 'doc'} · "
-            f"{d.get('project_id') or 'no project'} · "
-            f"{str(d.get('created_at') or '')[:10]} · "
-            f"chunks={d.get('chunk_count', 0)}"
-        )
-        cols = st.columns([5, 1])
-        cols[0].markdown(f"**{label}**  \n{meta}")
-        if cols[1].button("Open", key=f"home-open-{d['id']}"):
-            _go(PAGE_LIBRARY, doc_id=d["id"])
 
 
 def _library_page() -> None:
     st.title("Library")
-    st.caption("Browse research by project — then upload or search documents.")
+    st.caption("Browse research by project folder.")
 
     docs = repo.list_documents()
-    focus_upload = bool(st.session_state.pop("library_focus_upload", False))
 
     if not docs:
-        st.info("Memory is empty. Upload documents below to build Research Memory.")
+        st.info("Memory is empty. Upload documents on Home to build Research Memory.")
         _library_projects_view(docs)
-        st.markdown("---")
-        with st.expander("Upload Documents", expanded=True):
-            _upload_panel()
+        if st.button("Go to Home · Upload", use_container_width=True, key="lib_empty_home"):
+            _go(PAGE_HOME, focus_upload=True)
         return
 
     selected_id = st.session_state.get("library_selected_id")
@@ -779,14 +778,11 @@ def _library_page() -> None:
         st.session_state.library_view = "projects"
 
     view = st.session_state.library_view
-
     if view == "search":
-        if st.button("← Projects", key="lib_to_projects"):
-            st.session_state.library_view = "projects"
-            st.session_state.pop("library_project_focus", None)
-            st.rerun()
-        _library_search_view(docs)
-        return
+        # Search moved to Home — bounce old session state back to projects.
+        st.session_state.library_view = "projects"
+        st.session_state.pop("library_project_focus", None)
+        view = "projects"
 
     if view == "project_docs":
         if st.button("← Projects", key="lib_to_projects_from_docs"):
@@ -797,19 +793,7 @@ def _library_page() -> None:
         _library_project_docs_view(docs, pid)
         return
 
-    # Default: Projects on top, then Upload + Search
     _library_projects_view(docs)
-
-    st.markdown("---")
-    st.markdown("### Upload")
-    with st.expander("Upload Documents", expanded=focus_upload):
-        _upload_panel()
-
-    st.markdown("### Search")
-    if st.button("Search documents", use_container_width=True, key="lib_to_search"):
-        st.session_state.library_view = "search"
-        st.rerun()
-    st.caption("Search and filter across all documents in Memory.")
 
 
 def _library_projects_view(docs: list) -> None:
@@ -1043,8 +1027,9 @@ def _library_project_docs_view(docs: list, project_id: str) -> None:
     _library_doc_list(group, key_prefix=f"proj-{project_id}")
 
 
-def _library_search_view(docs: list) -> None:
-    st.markdown("### Search")
+def _library_search_view(docs: list, *, show_heading: bool = True) -> None:
+    if show_heading:
+        st.markdown("### Search")
     q = st.text_input(
         "Search Memory",
         placeholder="Search by title, filename, project, type…",
@@ -1179,8 +1164,7 @@ def _library_doc_list(docs: list, *, key_prefix: str) -> None:
         c1, c2 = st.columns([5, 1])
         c1.markdown(f"**{title}**  \n{meta}")
         if c2.button("Open", key=f"{key_prefix}-open-{d['id']}", use_container_width=True):
-            st.session_state.library_selected_id = d["id"]
-            st.rerun()
+            _go(PAGE_LIBRARY, doc_id=d["id"])
 
 
 def _filter_documents(
@@ -1787,8 +1771,8 @@ def _chat_page() -> None:
             "Explore Library after uploading documents, then come back to ask with evidence."
         )
         c1, c2 = st.columns(2)
-        if c1.button("Go to Library", type="primary", use_container_width=True):
-            _go(PAGE_LIBRARY, focus_upload=True)
+        if c1.button("Go to Home · Upload", type="primary", use_container_width=True):
+            _go(PAGE_HOME, focus_upload=True)
         if c2.button("Go to Home", use_container_width=True):
             _go(PAGE_HOME)
         return
