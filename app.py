@@ -132,7 +132,7 @@ MAIN_NAV = [
 ]
 
 DEV_NAV = [
-    (PAGE_CODING_AGENT, "Being Developed: 사내 코딩 에이전트"),
+    (PAGE_CODING_AGENT, "💻 코딩 에이전트"),
 ]
 
 
@@ -623,6 +623,7 @@ def main() -> None:
                 _go(page_id)
 
         st.markdown("---")
+        st.caption("Being Developed")
         for page_id, label in DEV_NAV:
             active = st.session_state.page == page_id
             if st.button(
@@ -698,7 +699,7 @@ def main() -> None:
 
 
 def _coding_agent_page() -> None:
-    st.title("사내 코딩 에이전트")
+    st.title("코딩 에이전트")
     st.caption("Being Developed")
     st.info("이 파트는 준비 중입니다. 곧 내용을 추가할 예정입니다.")
 
