@@ -120,6 +120,7 @@ PAGE_PROPOSAL = "Proposal Intelligence"
 PAGE_SIMILARITY = "Similarity Intelligence"
 PAGE_SCHEDULE = "Project Schedule"
 PAGE_RESEARCH_NOTE = "Research Note"
+PAGE_CODING_AGENT = "Coding Agent"
 
 MAIN_NAV = [
     (PAGE_HOME, "🏠 홈"),
@@ -128,6 +129,10 @@ MAIN_NAV = [
     (PAGE_RESEARCH_NOTE, "📝 연구 기록"),
     (PAGE_PROPOSAL, "🖊️ 제안서"),
     (PAGE_SIMILARITY, "🔍 유사도 검토"),
+]
+
+DEV_NAV = [
+    (PAGE_CODING_AGENT, "Being Developed: 사내 코딩 에이전트"),
 ]
 
 
@@ -618,6 +623,17 @@ def main() -> None:
                 _go(page_id)
 
         st.markdown("---")
+        for page_id, label in DEV_NAV:
+            active = st.session_state.page == page_id
+            if st.button(
+                label,
+                key=f"nav-{page_id}",
+                use_container_width=True,
+                type="primary" if active else "secondary",
+            ):
+                _go(page_id)
+
+        st.markdown("---")
         st.caption("System")
         stats = _kb_stats()
         st.write(f"Documents: **{stats['doc_count']}**")
@@ -671,12 +687,20 @@ def main() -> None:
             "문장·페이지·이미지로 확인합니다."
         )
         _similarity_panel()
+    elif page == PAGE_CODING_AGENT:
+        _coding_agent_page()
     elif page == PAGE_SCHEDULE:
         st.title("일정 관리")
         st.caption("과제별 회의·제출·작업·마일스톤을 월간 캘린더로 관리합니다.")
         _schedule_panel()
     else:
         _home_page()
+
+
+def _coding_agent_page() -> None:
+    st.title("사내 코딩 에이전트")
+    st.caption("Being Developed")
+    st.info("이 파트는 준비 중입니다. 곧 내용을 추가할 예정입니다.")
 
 
 def _roadmap_banner(title: str, blurb: str) -> None:
