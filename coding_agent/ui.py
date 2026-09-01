@@ -2091,8 +2091,7 @@ def run_coding_agent_app(*, on_home: Callable[[], None] | None = None) -> None:
         st.title("코딩 에이전트")
         st.error(
             "코딩 에이전트 의존성이 설치되지 않았습니다. "
-            "프로젝트 루트에서 `./scripts/setup_env.sh` 를 실행하세요 "
-            "(Python 3.12+ · deepagents-code)."
+            "Python 3.12+ 환경에서 `pip install -r requirements.txt` 를 실행하세요."
         )
         st.caption(str(exc))
         return
@@ -2100,7 +2099,7 @@ def run_coding_agent_app(*, on_home: Callable[[], None] | None = None) -> None:
         st.title("코딩 에이전트")
         st.error(
             "streamlit-antd-components 가 필요합니다. "
-            "`./scripts/setup_env.sh` 를 실행하세요."
+            "`pip install -r requirements.txt` 를 실행하세요."
         )
         return
 
