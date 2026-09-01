@@ -40,6 +40,7 @@ flowchart TB
     PROP[Proposal]
     SIM[Similarity]
     SCHED[Schedule]
+    CODE[Coding Agent]
     EVI[Evidence<br/>research docs / regulations]
     CHAT --> EVI
     NOTE --> EVI
@@ -54,6 +55,7 @@ flowchart TB
   U --> PROP
   U --> SIM
   U --> SCHED
+  U --> CODE
   HOME -->|browse| KB
   SIM -->|compare docs| KB
   SCHED -->|project dates| KB
@@ -82,14 +84,18 @@ Falls back to TF-IDF only when embeddings are unavailable.
 | **Research Notes** | Draft research notes or meeting minutes. References Memory + uploads (meeting mode: recording/transcript). Table preview, DOCX/HWPX download, save to Memory. |
 | **Proposal** | Upload an RFP and generate a center-part draft with compliance points, grounded in **research docs + regulations**. This is not a full proposal auto-generator. |
 | **Similarity** | Compare a new document against Memory (or two documents against each other) at the sentence, page, and image level. Uses MiniLM + pHash for duplicate and reuse detection. |
+| **Coding Agent** | Local Ollama + deepagents-code coding workbench: chat, file explorer, code editor, terminal, and thread management. Workspace stored under `data/coding_agent/`. |
 
 ---
 
 ## Run
 
+**Requires Python 3.12+** (`deepagents-code`).
+
 ```bash
 cd /mnt/data/eunbi/research-memory
-pip install -r requirements.txt
+python3.12 -m venv .venv312
+.venv312/bin/pip install -r requirements.txt
 ./run_app.sh
 ```
 
@@ -102,6 +108,7 @@ Open in browser: [http://127.0.0.1:8505](http://127.0.0.1:8505)
 | `data/raw/` | Uploaded original files |
 | `data/kb/memory.sqlite3` | All metadata — documents, projects, schedule items, indexes |
 | `data/kb/*.pkl` | Search indexes (TF-IDF, vector) |
+| `data/coding_agent/` | Coding agent threads, checkpoints, and workspace |
 
 > `data/` is in `.gitignore` and is **not** tracked by Git.
 > Cloning the repo starts with an empty database.
@@ -117,6 +124,7 @@ research_memory/
   kb/                  Knowledge Base (SQLite + hybrid index)
   engine/              Chat · Similarity · Proposal · Schedule · Research Note
                  docsim/  (similarity: MiniLM · parsers · pHash)
+coding_agent/          Coding agent workbench (deepagents-code · Ollama)
 ```
 
 ---

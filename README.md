@@ -40,6 +40,7 @@ flowchart TB
     PROP[Proposal]
     SIM[Similarity]
     SCHED[Schedule]
+    CODE[Coding Agent]
     EVI[Evidence<br/>연구문서 / 참고규정]
     CHAT --> EVI
     NOTE --> EVI
@@ -54,6 +55,7 @@ flowchart TB
   U --> PROP
   U --> SIM
   U --> SCHED
+  U --> CODE
   HOME -->|browse| KB
   SIM -->|compare docs| KB
   SCHED -->|project dates| KB
@@ -87,6 +89,7 @@ flowchart TB
 | **연구 기록**  | 연구노트·회의록 초안. Memory + 추가자료(회의록은 녹음/트랜스크립트) 참고, 표 미리보기·DOCX/HWPX 다운로드·Memory 저장                     |
 | **제안서**    | RFP/공고문을 넣고, **연구문서 + 참고규정(운영요령)** 근거로 센터 파트 초안·준수 포인트를 만듭니다. 전체 제안서 자동완성이 아닙니다                    |
 | **유사도 검토** | 새 문서 ↔ Memory(또는 문서끼리) 문장·페이지·이미지를 비교합니다. MiniLM + pHash, 표/페이지 PNG로 중복·재사용 검토                     |
+| **코딩 에이전트** | 로컬 Ollama + deepagents-code 기반 코딩 워크벤치. 채팅·파일 탐색기·코드 에디터·터미널·스레드 관리. 워크스페이스는 `data/coding_agent/`에 저장 |
 
 
 ---
@@ -95,12 +98,27 @@ flowchart TB
 
 ## Run
 
+**Python 3.12+** 필요 (`deepagents-code`).
+
 ```bash
 cd /mnt/data/eunbi/research-memory
+python3.12 -m venv .venv312
+.venv312/bin/pip install -r requirements.txt
 ./run_app.sh
 ```
 
 브라우저: [http://127.0.0.1:8505](http://127.0.0.1:8505)
+
+### 데이터 저장
+
+| 경로 | 내용 |
+| --- | --- |
+| `data/raw/` | 업로드 원본 파일 |
+| `data/kb/memory.sqlite3` | 문서·프로젝트·일정·인덱스 메타데이터 |
+| `data/kb/*.pkl` | 검색 인덱스 (TF-IDF, vector) |
+| `data/coding_agent/` | 코딩 에이전트 스레드·체크포인트·워크스페이스 |
+
+> `data/`는 `.gitignore`에 포함되어 Git에 올라가지 않습니다.
 
 ---
 
@@ -115,6 +133,7 @@ research_memory/
   kb/                  Knowledge Base
   engine/              Chat · Similarity · Proposal · Schedule · Research Note
                  docsim/  (유사도: MiniLM · 파서 · pHash)
+coding_agent/          코딩 에이전트 워크벤치 (deepagents-code · Ollama)
 ```
 
 ---
