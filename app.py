@@ -682,10 +682,8 @@ def main() -> None:
         st.caption("연구노트·회의록 초안을 Memory/새 자료로 만들고 표로 저장합니다.")
         _research_note_panel()
     elif page == PAGE_PROPOSAL:
-        _roadmap_banner(
-            "제안서",
-            "RFP와 Memory 근거로 제안 초안을 작성·검토합니다.",
-        )
+        st.title("제안서")
+        st.caption("RFP와 Memory 근거로 제안 초안을 작성·검토합니다.")
         _proposal_panel()
     elif page == PAGE_SIMILARITY:
         st.title("유사도 검토")
@@ -700,13 +698,6 @@ def main() -> None:
         _schedule_panel()
     else:
         _home_page()
-
-
-def _roadmap_banner(title: str, blurb: str) -> None:
-    st.info("**Roadmap / Coming soon** — available for early exploration")
-    st.title(title)
-    st.write(blurb)
-    st.divider()
 
 
 def _home_page() -> None:

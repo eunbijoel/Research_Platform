@@ -399,7 +399,7 @@ def generate_section_draft(
 """
 
     if not llm_available():
-        return _clean_draft_prose(
+        return clean_draft_prose(
             _heuristic_section(
                 section_key,
                 rfp,
@@ -442,9 +442,9 @@ def generate_section_draft(
 """
     try:
         raw = generate_text(prompt)
-        return _clean_draft_prose(_parse_section_text(raw, section_key))
+        return clean_draft_prose(_parse_section_text(raw, section_key))
     except LLMConnectionError:
-        return _clean_draft_prose(
+        return clean_draft_prose(
             _heuristic_section(
                 section_key,
                 rfp,
@@ -1318,10 +1318,6 @@ def clean_draft_prose(text: str) -> str:
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
-
-
-def _clean_draft_prose(text: str) -> str:
-    return clean_draft_prose(text)
 
 
 def _research_queries(rfp: dict[str, Any]) -> list[str]:
