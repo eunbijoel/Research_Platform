@@ -10,7 +10,7 @@ import streamlit as st
 try:
     import streamlit_antd_components as sac
     from streamlit_antd_components import BsIcon, TreeItem
-except ImportError:  # optional until requirements-coding-agent.txt is installed
+except ImportError:  # optional until requirements are installed
     sac = None  # type: ignore[assignment]
     BsIcon = TreeItem = None  # type: ignore[misc, assignment]
 

@@ -19,7 +19,7 @@ echo "Creating venv: $VENV (Python $(python3.12 -V))"
 echo "Using TMPDIR=$TMPDIR (root disk may be full — do not use system pip on 3.10)"
 python3.12 -m venv "$VENV"
 "$VENV/bin/pip" install -U pip wheel
-"$VENV/bin/pip" install -r requirements.txt -r requirements-coding-agent.txt
+"$VENV/bin/pip" install -r requirements.txt
 
 echo ""
 echo "Done. Run the app with:"
