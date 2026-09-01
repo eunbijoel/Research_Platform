@@ -129,9 +129,6 @@ MAIN_NAV = [
     (PAGE_RESEARCH_NOTE, "📝 연구 기록"),
     (PAGE_PROPOSAL, "🖊️ 제안서"),
     (PAGE_SIMILARITY, "🔍 유사도 검토"),
-]
-
-DEV_NAV = [
     (PAGE_CODING_AGENT, "💻 코딩 에이전트"),
 ]
 
@@ -624,18 +621,6 @@ def main() -> None:
         st.caption("Organizational research intelligence")
 
         for page_id, label in MAIN_NAV:
-            active = st.session_state.page == page_id
-            if st.button(
-                label,
-                key=f"nav-{page_id}",
-                use_container_width=True,
-                type="primary" if active else "secondary",
-            ):
-                _go(page_id)
-
-        st.markdown("---")
-        st.caption("Being Developed")
-        for page_id, label in DEV_NAV:
             active = st.session_state.page == page_id
             if st.button(
                 label,
