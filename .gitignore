@@ -1,0 +1,15 @@
+.venv/
+.venv312/
+__pycache__/
+*.pyc
+.env
+data/raw/
+data/kb/
+data/coding_agent/
+*.db
+.pytest_cache/
+.streamlit/secrets.toml
+*.egg-info/
+dist/
+build/
+demo/

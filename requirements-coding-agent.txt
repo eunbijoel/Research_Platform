@@ -1,0 +1,4 @@
+# Coding Agent workbench — requires Python >=3.12 (not installable on 3.10).
+# Use: ./scripts/setup_env.sh   (creates .venv312 on /mnt/data)
+deepagents-code[ollama]>=0.1.62
+streamlit-antd-components==0.3.2

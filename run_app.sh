@@ -5,12 +5,14 @@ export PYTHONPATH="$(pwd)${PYTHONPATH:+:$PYTHONPATH}"
 export TMPDIR="${TMPDIR:-/mnt/data/eunbi/tmp}"
 mkdir -p "$TMPDIR"
 
-if [[ -x ./.venv/bin/streamlit ]]; then
+if [[ -x ./.venv312/bin/streamlit ]]; then
+  STREAMLIT=./.venv312/bin/streamlit
+elif [[ -x ./.venv/bin/streamlit ]]; then
   STREAMLIT=./.venv/bin/streamlit
 elif command -v streamlit >/dev/null 2>&1; then
   STREAMLIT=streamlit
 else
-  echo "streamlit not found. Create venv and: pip install -r requirements.txt" >&2
+  echo "streamlit not found. Run: ./scripts/setup_env.sh" >&2
   exit 1
 fi
 

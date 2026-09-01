@@ -608,6 +608,17 @@ def main() -> None:
         st.session_state.page = PAGE_HOME
     _sched_handle_query_params()
 
+    page = st.session_state.page
+    if page == "Library":
+        st.session_state.page = PAGE_HOME
+        page = PAGE_HOME
+
+    if page == PAGE_CODING_AGENT:
+        from coding_agent.ui import run_coding_agent_app
+
+        run_coding_agent_app(on_home=lambda: _go(PAGE_HOME))
+        return
+
     with st.sidebar:
         st.markdown("### Research Memory")
         st.caption("Organizational research intelligence")
@@ -662,11 +673,6 @@ def main() -> None:
                     n = repo.rebuild_index()
                 st.success(f"chunks={n} · {repo.last_index_status}")
 
-    page = st.session_state.page
-    if page == "Library":
-        # Legacy session value after Library tab removal.
-        st.session_state.page = PAGE_HOME
-        page = PAGE_HOME
     if page == PAGE_HOME:
         _home_page()
     elif page == PAGE_CHAT:
@@ -688,20 +694,12 @@ def main() -> None:
             "문장·페이지·이미지로 확인합니다."
         )
         _similarity_panel()
-    elif page == PAGE_CODING_AGENT:
-        _coding_agent_page()
     elif page == PAGE_SCHEDULE:
         st.title("일정 관리")
         st.caption("과제별 회의·제출·작업·마일스톤을 월간 캘린더로 관리합니다.")
         _schedule_panel()
     else:
         _home_page()
-
-
-def _coding_agent_page() -> None:
-    st.title("코딩 에이전트")
-    st.caption("Being Developed")
-    st.info("이 파트는 준비 중입니다. 곧 내용을 추가할 예정입니다.")
 
 
 def _roadmap_banner(title: str, blurb: str) -> None:
