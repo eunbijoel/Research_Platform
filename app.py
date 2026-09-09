@@ -1219,8 +1219,34 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
             st.session_state.pop(f"confirm_del_{doc_id}", None)
             st.rerun()
 
-    title = doc.get("title") or doc["filename"]
-    st.markdown(f"## {title}")
+    title_key = f"lib-doc-title-{doc_id}"
+    title_src_key = f"_lib_doc_title_src_{doc_id}"
+    db_title = doc.get("title") or ""
+    if st.session_state.get(title_src_key) != db_title:
+        st.session_state[title_key] = db_title
+        st.session_state[title_src_key] = db_title
+    title_c, save_c = st.columns([5, 1])
+    with title_c:
+        new_title = st.text_input(
+            "제목",
+            key=title_key,
+            label_visibility="collapsed",
+            placeholder="문서 제목",
+        )
+    with save_c:
+        st.write("")  # align with text_input
+        if st.button(
+            "제목 저장",
+            key=f"lib-doc-title-save-{doc_id}",
+            use_container_width=True,
+            disabled=(new_title or "").strip() == db_title.strip(),
+        ):
+            saved = (new_title or "").strip()
+            repo.update_document(doc_id, title=saved)
+            st.session_state[title_key] = saved
+            st.session_state[title_src_key] = saved
+            st.success("제목을 저장했습니다.")
+            st.rerun()
     st.caption(
         f"{_role_badge(doc)} · `{doc['filename']}` · {doc.get('doc_type') or '—'} · "
         f"{doc.get('project_id') or '—'} · {doc.get('year') or '—'} · "
@@ -1256,11 +1282,6 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
                 st.rerun()
 
             if st.session_state[edit_key]:
-                new_title = st.text_input(
-                    "Title",
-                    value=doc.get("title") or "",
-                    key=f"lib-edit-title-{doc_id}",
-                )
                 new_project = st.text_input(
                     "Project ID",
                     value=doc.get("project_id") or "",
@@ -1292,7 +1313,6 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
                     with st.spinner("Saving and re-indexing…"):
                         repo.update_document(
                             doc_id,
-                            title=new_title.strip(),
                             project_id=new_project.strip(),
                             full_text=new_text,
                             document_role=(
