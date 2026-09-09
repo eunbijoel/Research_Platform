@@ -1243,9 +1243,8 @@ def _document_detail(doc_id: str, all_docs: list) -> None:
         ):
             saved = (new_title or "").strip()
             repo.update_document(doc_id, title=saved)
-            st.session_state[title_key] = saved
+            # Do not assign title_key after the text_input exists; sync on next run.
             st.session_state[title_src_key] = saved
-            st.success("제목을 저장했습니다.")
             st.rerun()
     st.caption(
         f"{_role_badge(doc)} · `{doc['filename']}` · {doc.get('doc_type') or '—'} · "
