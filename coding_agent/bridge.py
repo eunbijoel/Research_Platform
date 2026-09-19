@@ -29,15 +29,31 @@ from coding_agent.config import (
     resolve_workspace,
 )
 from coding_agent.events import AgentEvent
+from coding_agent.spreadsheet import make_spreadsheet_tools
+from coding_agent.tools import ANALYZE_EXCEL_NAME, TRANSFORM_EXCEL_NAME, create_excel_tools
 
 # Prove at import time that deepagents-code is the runtime dependency.
 import deepagents_code as _deepagents_code  # noqa: F401
-from deepagents_code.agent import create_cli_agent
+from deepagents_code.agent import _add_interrupt_on, create_cli_agent
+import deepagents_code.agent as _deepagents_agent
 
 USER_HINT = (
     "[Workbench] Prefer tools over guessing; reply in the user's language; "
     "after edits briefly explain what changed. When done, leave code in a "
-    "runnable state.\n\n"
+    "runnable state. For Excel/CSV (.xlsx/.xls/.csv): first use "
+    "inspect_spreadsheet for structure (sheets, columns, metadata) and "
+    "read_spreadsheet for a bounded row/column slice. Do not use read_file on "
+    "binary workbooks. Use analyze_excel only when the user wants natural-language "
+    "summary, comparison, aggregation, or a production analysis result. Use "
+    "transform_excel when the user wants a copy with extract_to_sheet (rows/"
+    "columns onto a new sheet) or unmerge_cells (fill unmerged cells). Never "
+    "modify the original workbook; results land under outputs/excel_agent/ and "
+    "appear in Files for download. Do not invent Excel coordinates, do not run "
+    "Excel Analyzer via the execute shell, and do not reimplement that work in "
+    "pandas. When Auto-approve is off, analyze_excel / transform_excel pause for "
+    "the same Approve/Reject confirmation as shell and file writes. If Excel "
+    "Analyzer is misconfigured, report the tool error without claiming the whole "
+    "app failed.\n\n"
 )
 
 def normalize_model(model: str | None) -> str:
@@ -53,6 +69,64 @@ def normalize_model(model: str | None) -> str:
     }:
         return name
     return f"ollama:{name}"
+
+
+def workspace_agent_tools(workspace: Path) -> list:
+    """Spreadsheet inspection tools plus dedicated Excel Analyzer tools."""
+    tools = [
+        *list(make_spreadsheet_tools(workspace)),
+        *list(create_excel_tools(workspace=workspace)),
+    ]
+    names = [getattr(tool, "name", "") for tool in tools]
+    if len(names) != len(set(names)):
+        raise ValueError(f"Duplicate agent tool names: {names}")
+    return tools
+
+
+def _format_excel_tool_description(tool_call: Any, _state: Any, _runtime: Any) -> str:
+    """HITL prompt text for analyze_excel / transform_excel."""
+    name = ""
+    args: dict[str, Any] = {}
+    if isinstance(tool_call, dict):
+        name = str(tool_call.get("name") or "")
+        raw_args = tool_call.get("args") or {}
+        args = raw_args if isinstance(raw_args, dict) else {}
+    files = args.get("files") or []
+    prompt = str(args.get("prompt") or "").strip()
+    file_preview = ", ".join(str(f) for f in files[:4]) if isinstance(files, list) else str(files)
+    if isinstance(files, list) and len(files) > 4:
+        file_preview += f", …(+{len(files) - 4})"
+    prompt_preview = prompt if len(prompt) <= 160 else prompt[:157] + "..."
+    if name == TRANSFORM_EXCEL_NAME:
+        action = "Transform workbook copy via Excel Analyzer"
+    else:
+        action = "Analyze spreadsheet via Excel Analyzer"
+    return (
+        f"Action: {action}\n"
+        f"Tool: {name or 'excel'}\n"
+        f"Files: {file_preview or '(none)'}\n"
+        f"Prompt: {prompt_preview or '(empty)'}"
+    )
+
+
+def interrupt_on_with_excel(
+    *,
+    mcp_tools: Any = (),
+    auto_mode_enabled: bool = True,
+) -> dict[str, Any]:
+    """Stock HITL map plus Excel custom tools (Streamlit approval panel)."""
+    mapping = dict(
+        _add_interrupt_on(mcp_tools=mcp_tools, auto_mode_enabled=auto_mode_enabled)
+    )
+    when = mapping["write_file"]["when"]
+    excel_cfg = {
+        "allowed_decisions": ["approve", "reject"],
+        "description": _format_excel_tool_description,
+        "when": when,
+    }
+    mapping[ANALYZE_EXCEL_NAME] = excel_cfg
+    mapping[TRANSFORM_EXCEL_NAME] = excel_cfg
+    return mapping
 
 
 def deepagents_version() -> str:
@@ -215,18 +289,27 @@ class DeepAgentsBridge:
     @property
     def agent(self):
         if self._agent is None:
-            self._agent, _ = create_cli_agent(
-                model=self.model,
-                assistant_id="coding-agent-ui",
-                cwd=self.workspace,
-                interactive=False,
-                auto_approve=self.auto_approve,
-                enable_ask_user=False,
-                enable_memory=False,
-                enable_skills=False,
-                enable_shell=True,
-                checkpointer=self._checkpointer,
-            )
+            # deepagents-code does not expose interrupt_on publicly; extend the
+            # stock HITL map so Excel tools pause for the existing Streamlit
+            # Approve/Reject panel when auto_approve is False.
+            original = _deepagents_agent._add_interrupt_on
+            _deepagents_agent._add_interrupt_on = interrupt_on_with_excel  # type: ignore[assignment]
+            try:
+                self._agent, _ = create_cli_agent(
+                    model=self.model,
+                    assistant_id="coding-agent-ui",
+                    cwd=self.workspace,
+                    interactive=False,
+                    auto_approve=self.auto_approve,
+                    enable_ask_user=False,
+                    enable_memory=False,
+                    enable_skills=False,
+                    enable_shell=True,
+                    checkpointer=self._checkpointer,
+                    tools=workspace_agent_tools(self.workspace),
+                )
+            finally:
+                _deepagents_agent._add_interrupt_on = original  # type: ignore[assignment]
         return self._agent
 
     def reset_agent(self) -> None:
@@ -352,7 +435,6 @@ class DeepAgentsBridge:
                     change["diff"],
                     action=change["action"],
                 )
-                # Also refresh code pane
                 path = change["path"]
                 after_text = after.get(path, "")
                 before_text = before_snap.get(path)

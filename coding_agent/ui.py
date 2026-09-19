@@ -14,12 +14,15 @@ except ImportError:  # optional until requirements are installed
     sac = None  # type: ignore[assignment]
     BsIcon = TreeItem = None  # type: ignore[misc, assignment]
 
+ROOT = Path(__file__).resolve().parent.parent
+
 from coding_agent.config import DATA_DIR, IGNORE_DIR_NAMES, IGNORE_SUFFIXES, MODEL_NAME, resolve_workspace
 from coding_agent.ollama_client import available as ollama_available
 from coding_agent.ollama_client import list_models
 from coding_agent.threads import ThreadStore
 from coding_agent.workbench import (
     classify_file,
+    delete_workspace_file,
     detect_preview_kind,
     poll_preview,
     poll_user_terminal,
@@ -33,7 +36,17 @@ from coding_agent.workbench import (
     validate_user_command,
     write_workspace_text,
 )
+from coding_agent.spreadsheet import (
+    MAX_UPLOAD_BYTES,
+    clear_session_uploads,
+    ensure_upload_dirs,
+    format_upload_context,
+    is_spreadsheet_path as is_spreadsheet_file,
+    preview_spreadsheet,
+    save_upload,
+)
 
+# Enables per-panel scroll regions; CSS overrides to viewport height.
 PANEL_SCROLL_HEIGHT = 720
 MAIN_SPLIT_MIN = 30
 MAIN_SPLIT_MAX = 70
@@ -543,10 +556,36 @@ def _store() -> ThreadStore:
     return ThreadStore(DATA_DIR)
 
 
+def _bridge_cache_token() -> str:
+    """Invalidate cached bridges when bridge / spreadsheet / Excel code changes."""
+    parts: list[str] = ["spreadsheet-v2", "excel-hitl-v1"]
+    watch = [
+        ROOT / "coding_agent" / "bridge.py",
+        ROOT / "coding_agent" / "spreadsheet.py",
+        ROOT / "coding_agent" / "tools" / "__init__.py",
+        ROOT / "coding_agent" / "tools" / "excel_tool.py",
+    ]
+    integ = ROOT / "coding_agent" / "integrations"
+    if integ.is_dir():
+        watch.extend(sorted(integ.glob("*.py")))
+    for path in watch:
+        try:
+            parts.append(f"{path.relative_to(ROOT)}:{path.stat().st_mtime_ns}")
+        except OSError:
+            parts.append(f"{path.name}:missing")
+    return "|".join(parts)
+
+
 @st.cache_resource(show_spinner=False)
-def _bridge(workspace: str, model: str, auto_approve: bool):
+def _bridge(
+    workspace: str,
+    model: str,
+    auto_approve: bool,
+    _cache_token: str,
+):
     from coding_agent.bridge import DeepAgentsBridge
 
+    del _cache_token
     return DeepAgentsBridge(workspace, model=model, auto_approve=auto_approve)
 
 
@@ -567,6 +606,8 @@ def _init_state() -> None:
         st.session_state.test_results = []
     if "selected_file" not in st.session_state:
         st.session_state.selected_file = None
+    if "selected_folder" not in st.session_state:
+        st.session_state.selected_folder = None
     if "workspace" not in st.session_state:
         st.session_state.workspace = str(resolve_workspace())
     if "model" not in st.session_state:
@@ -622,6 +663,25 @@ def _init_state() -> None:
         st.session_state.file_explorer_expanded = []
     if "fe_pick_key" not in st.session_state:
         st.session_state.fe_pick_key = None
+    if "uploaded_files" not in st.session_state:
+        st.session_state.uploaded_files = []
+    if "upload_seen_ids" not in st.session_state:
+        st.session_state.upload_seen_ids = set()
+    if "spreadsheet_sheet" not in st.session_state:
+        st.session_state.spreadsheet_sheet = {}
+    if "upload_status" not in st.session_state:
+        st.session_state.upload_status = None
+    if "pending_user_prompt" not in st.session_state:
+        st.session_state.pending_user_prompt = None
+    if "fe_delete_target" not in st.session_state:
+        st.session_state.fe_delete_target = None
+    if "fe_tree_nonce" not in st.session_state:
+        st.session_state.fe_tree_nonce = 0
+    if "fe_delete_error" not in st.session_state:
+        st.session_state.fe_delete_error = None
+    if "editor_close_confirm" not in st.session_state:
+        st.session_state.editor_close_confirm = False
+    ensure_upload_dirs(Path(st.session_state.workspace))
 
 
 def _sync_main_split_from_query() -> None:
@@ -909,9 +969,19 @@ def _go_new_chat() -> None:
     st.session_state.test_results = []
     st.session_state.pending_interrupt = None
     st.session_state.selected_file = None
+    st.session_state.selected_folder = None
     st.session_state.editor_draft_path = None
     st.session_state.editor_draft = ""
     st.session_state.editor_disk = ""
+    st.session_state.uploaded_files = []
+    st.session_state.upload_seen_ids = set()
+    st.session_state.upload_status = None
+    # Chat attachments now live under uploads/ and are kept across chats.
+    # Still wipe any leftover legacy .session_uploads/ files.
+    try:
+        clear_session_uploads(resolve_workspace())
+    except Exception:  # noqa: BLE001
+        pass
     st.rerun()
 
 
@@ -1475,12 +1545,17 @@ def _fe_open_index(items: list[TreeItem], expanded: set[str], selected: str | No
     return open_index
 
 
+def _path_under(path: str, root: str) -> bool:
+    return path == root or path.startswith(f"{root}/")
+
+
 def _handle_fe_tree_pick(picked: str | None) -> None:
     if not picked:
         return
     if picked.startswith(FE_FOLDER_PREFIX):
         rel = picked.removeprefix(FE_FOLDER_PREFIX)
         if rel == "workspace":
+            st.session_state.selected_folder = None
             return
         expanded = _expanded_dirs()
         if rel in expanded:
@@ -1488,7 +1563,10 @@ def _handle_fe_tree_pick(picked: str | None) -> None:
         else:
             expanded.add(rel)
         _set_expanded_dirs(expanded)
+        st.session_state.selected_folder = rel
+        st.rerun()
         return
+    st.session_state.selected_folder = None
     if st.session_state.selected_file != picked:
         st.session_state.selected_file = picked
         st.session_state.editor_force_reload = True
@@ -1500,20 +1578,75 @@ def _refresh_file_explorer(workspace: Path) -> None:
     files = set(_list_workspace_files(workspace))
     sel = st.session_state.selected_file
     if sel and sel not in files:
-        st.session_state.selected_file = None
+        # Keep selection when the file still exists on disk (e.g. brief tree lag).
+        path = _safe_workspace_path(workspace, sel)
+        if path is None or not path.is_file():
+            st.session_state.selected_file = None
+            st.session_state.editor_force_reload = True
+    folder = st.session_state.get("selected_folder")
+    if folder:
+        folder_path = _safe_workspace_path(workspace, folder)
+        if folder_path is None or not folder_path.is_dir():
+            st.session_state.selected_folder = None
+    st.session_state.fe_pick_key = None
+    st.session_state.fe_tree_nonce = int(st.session_state.get("fe_tree_nonce", 0)) + 1
 
 
-@st.fragment
-def _file_explorer_tree(workspace: Path) -> None:
-    if sac is None:
-        st.caption("Install streamlit-antd-components to use the file tree.")
+def _open_workspace_file(rel: str) -> None:
+    """Select a workspace file for the right-pane preview/editor."""
+    if not rel:
         return
+    st.session_state.selected_folder = None
+    st.session_state.selected_file = rel
+    st.session_state.editor_force_reload = True
+    st.session_state.wb_preview_mode = False
+    st.session_state.wb_show_diff = False
+    st.session_state.fe_delete_target = None
+    _expand_parent_dirs(rel)
+
+
+def _existing_session_uploads(workspace: Path) -> list[str]:
+    out: list[str] = []
+    for rel in _current_upload_paths(workspace):
+        path = _safe_workspace_path(workspace, rel)
+        if path is not None and path.is_file():
+            out.append(rel)
+    return out
+
+
+def _render_session_upload_openers(
+    workspace: Path, *, key_prefix: str, caption: str | None = None
+) -> None:
+    """Clickable openers for chat-attached spreadsheets under uploads/."""
+    paths = _existing_session_uploads(workspace)
+    if not paths:
+        return
+    if caption:
+        st.caption(caption)
+    cols = st.columns(min(len(paths), 3))
+    for i, rel in enumerate(paths):
+        with cols[i % len(cols)]:
+            label = Path(rel).name
+            if st.button(
+                label,
+                key=f"{key_prefix}-{i}-{rel.replace('/', '_')}",
+                use_container_width=True,
+                help=f"Open preview · {rel}",
+            ):
+                _open_workspace_file(rel)
+                st.rerun()
+
+
+def _file_explorer_tree(workspace: Path) -> None:
     _ensure_selected_parents_expanded()
     items = _build_fe_tree_root(workspace)
     expanded = _expanded_dirs()
     selected = st.session_state.selected_file
-    open_index = _fe_open_index(items, expanded, selected)
-    sel_idx = _fe_selected_index(items, selected)
+    folder = st.session_state.get("selected_folder")
+    open_index = _fe_open_index(items, expanded, selected or folder)
+    tree_target = _fe_folder_value(folder) if folder else selected
+    sel_idx = _fe_selected_index(items, tree_target)
+    nonce = int(st.session_state.get("fe_tree_nonce", 0))
     picked = sac.tree(
         items,
         index=sel_idx if sel_idx is not None else 0,
@@ -1524,7 +1657,7 @@ def _file_explorer_tree(workspace: Path) -> None:
         height=380,
         size="sm",
         return_index=False,
-        key="fe_tree",
+        key=f"fe_tree_{nonce}",
     )
     if isinstance(picked, list):
         picked = picked[0] if picked else None
@@ -1534,7 +1667,48 @@ def _file_explorer_tree(workspace: Path) -> None:
     st.session_state.fe_pick_key = picked
 
 
+def _delete_selected_path(workspace: Path, target: str) -> None:
+    ok, err = delete_workspace_file(workspace, target)
+    if not ok:
+        st.session_state.fe_delete_error = err or "Delete failed"
+        return
+    st.session_state.fe_delete_error = None
+    st.session_state.uploaded_files = [
+        p for p in st.session_state.uploaded_files if not _path_under(p, target)
+    ]
+    sel = st.session_state.selected_file
+    if sel and _path_under(sel, target):
+        st.session_state.selected_file = None
+        st.session_state.editor_draft = ""
+        st.session_state.editor_disk = ""
+        st.session_state.editor_draft_path = None
+        st.session_state.editor_force_reload = True
+    folder = st.session_state.get("selected_folder")
+    if folder and _path_under(folder, target):
+        st.session_state.selected_folder = None
+    st.session_state.file_views = [
+        v for v in st.session_state.file_views if not _path_under(str(v.get("path") or ""), target)
+    ]
+    st.session_state.file_changes = [
+        c for c in st.session_state.file_changes if not _path_under(str(c.get("path") or ""), target)
+    ]
+    st.session_state.spreadsheet_sheet = {
+        k: v for k, v in st.session_state.spreadsheet_sheet.items() if not _path_under(k, target)
+    }
+    expanded = _expanded_dirs()
+    _set_expanded_dirs({d for d in expanded if not _path_under(d, target)})
+    if st.session_state.upload_status and Path(target).name in (
+        st.session_state.upload_status or ""
+    ):
+        st.session_state.upload_status = None
+    st.session_state.fe_delete_target = None
+    _refresh_file_explorer(workspace)
+
+
 def _render_file_explorer(workspace: Path) -> None:
+    folder = st.session_state.get("selected_folder")
+    sel = folder or st.session_state.selected_file
+    is_folder = bool(folder)
     head_left, head_right = st.columns([5, 1], gap="small")
     with head_left:
         st.markdown('<div class="ca-section ca-fe-title">Files</div>', unsafe_allow_html=True)
@@ -1543,11 +1717,131 @@ def _render_file_explorer(workspace: Path) -> None:
             _refresh_file_explorer(workspace)
             st.rerun()
 
+    if st.session_state.get("fe_delete_error"):
+        st.error(st.session_state.fe_delete_error)
+        st.session_state.fe_delete_error = None
+
+    if sel:
+        name = Path(sel).name
+        row_l, row_r = st.columns([3, 2], gap="small")
+        with row_l:
+            st.caption(f"{name}/" if is_folder else name)
+        with row_r:
+            if st.button(
+                "Delete",
+                key="fe-delete-btn",
+                type="secondary",
+                use_container_width=True,
+                help=f"Delete {'folder' if is_folder else 'file'} {name}",
+            ):
+                st.session_state.fe_delete_target = sel
+                st.rerun()
+
+    if st.session_state.fe_delete_target:
+        target = st.session_state.fe_delete_target
+        name = Path(target).name
+        target_path = _safe_workspace_path(workspace, target)
+        deleting_folder = bool(target_path and target_path.is_dir())
+        if deleting_folder:
+            st.warning(f"Delete folder `{name}` and everything inside?")
+        else:
+            st.warning(f"Delete `{name}`?")
+        c_yes, c_no = st.columns(2, gap="small")
+        with c_yes:
+            if st.button("Confirm", key="fe-del-yes", type="primary", use_container_width=True):
+                _delete_selected_path(workspace, target)
+                st.rerun()
+        with c_no:
+            if st.button("Cancel", key="fe-del-no", use_container_width=True):
+                st.session_state.fe_delete_target = None
+                st.rerun()
+
     children = _build_fe_tree_root(workspace)[0].children
     if not children:
         st.caption("Empty workspace")
         return
     _file_explorer_tree(workspace)
+
+
+def _process_chat_uploads(workspace: Path, files: list) -> list[str]:
+    """Save chat-attached Excel/CSV under workspace/uploads/ (kept across chats)."""
+    saved: list[str] = []
+    for item in files:
+        file_id = getattr(item, "file_id", None) or f"{item.name}:{getattr(item, 'size', 0)}"
+        if file_id in st.session_state.upload_seen_ids:
+            # Still track path if we already saved this attachment in-session
+            continue
+        try:
+            data = item.getvalue()
+            result = save_upload(
+                workspace,
+                filename=item.name,
+                data=data,
+            )
+            rel = result["path"]
+            if rel not in st.session_state.uploaded_files:
+                st.session_state.uploaded_files.append(rel)
+            st.session_state.upload_seen_ids.add(file_id)
+            st.session_state.upload_status = f"Saved · {rel}"
+            _open_workspace_file(rel)
+            _expand_parent_dirs(rel)
+            saved.append(rel)
+        except Exception as exc:  # noqa: BLE001
+            st.session_state.upload_status = None
+            st.error(str(exc))
+            st.session_state.upload_seen_ids.add(file_id)
+    if saved:
+        _refresh_file_explorer(workspace)
+    return saved
+
+
+def _current_upload_paths(workspace: Path) -> list[str]:
+    """Chat attachments saved this session (under uploads/)."""
+    paths: list[str] = []
+    seen: set[str] = set()
+    for p in list(st.session_state.uploaded_files):
+        if p not in seen:
+            seen.add(p)
+            paths.append(p)
+    return paths
+
+
+def _spreadsheet_preview_body(workspace: Path, rel: str) -> None:
+    sheets_map = st.session_state.spreadsheet_sheet
+    preferred = sheets_map.get(rel)
+    info = preview_spreadsheet(workspace, rel, sheet=preferred)
+    if not info.get("ok"):
+        st.warning(info.get("error") or "Preview failed")
+        return
+
+    sheet_names = info.get("sheets") or []
+    if info.get("format") != "csv" and len(sheet_names) > 1:
+        idx = sheet_names.index(info["sheet"]) if info["sheet"] in sheet_names else 0
+        chosen = st.selectbox("Sheet", sheet_names, index=idx, key=f"ss-sheet-{rel}")
+        if chosen != info["sheet"]:
+            sheets_map[rel] = chosen
+            st.rerun()
+    elif sheet_names:
+        st.caption(f"Sheet · {info['sheet']}")
+
+    meta_l, meta_r = st.columns(2)
+    meta_l.caption(f"Rows · {info['rows']}  ·  Columns · {info['columns']}")
+    meta_r.caption(f"Format · {info.get('format', '')}")
+
+    with st.expander("Columns & dtypes", expanded=False):
+        dtypes = info.get("dtypes") or {}
+        for name in info.get("column_names") or []:
+            st.text(f"{name}  ·  {dtypes.get(name, '')}")
+
+    preview = info.get("preview")
+    if preview is not None and not getattr(preview, "empty", True):
+        st.dataframe(preview, use_container_width=True, hide_index=True)
+        if info["rows"] > len(preview):
+            st.caption(f"Showing first {len(preview)} of {info['rows']} rows")
+    else:
+        st.caption("No rows to preview.")
+
+
 
 
 def _sidebar_settings(workspace: Path) -> None:
@@ -1660,6 +1954,15 @@ def _consume_events(events, status_box, live, assistant_chunks: list[str]) -> No
             )
 
 
+def _deepagents_version() -> str:
+    try:
+        from coding_agent.bridge import deepagents_version
+
+        return deepagents_version()
+    except ImportError:
+        return "not installed"
+
+
 def _sidebar(workspace: Path, *, on_home: Callable[[], None] | None = None) -> None:
     if on_home is not None:
         if st.button("← Research Memory", use_container_width=True, key="ca-back-home"):
@@ -1711,15 +2014,6 @@ def _sidebar(workspace: Path, *, on_home: Callable[[], None] | None = None) -> N
     _sidebar_settings(workspace)
 
 
-def _deepagents_version() -> str:
-    try:
-        from coding_agent.bridge import deepagents_version
-
-        return deepagents_version()
-    except ImportError:
-        return "not installed"
-
-
 def _approval_panel(bridge) -> None:
     pending = st.session_state.pending_interrupt
     if not pending:
@@ -1769,7 +2063,8 @@ def _approval_panel(bridge) -> None:
 
 
 def _render_chat_history() -> None:
-    for msg in st.session_state.messages:
+    workspace = Path(st.session_state.workspace)
+    for idx, msg in enumerate(st.session_state.messages):
         role = msg.get("role", "assistant")
         if role == "tool":
             with st.chat_message("assistant"):
@@ -1779,10 +2074,21 @@ def _render_chat_history() -> None:
                 path = _tool_path_hint(args)
                 label = _compact_tool_label(name)
                 status = "Completed" if ok else "Failed"
-                line = f"{label} — {status}"
                 if path:
-                    line = f"{label} · `{path}` — {status}"
-                st.caption(line)
+                    st.caption(f"{label} — {status}")
+                    path_obj = _safe_workspace_path(workspace, path)
+                    can_open = path_obj is not None and path_obj.is_file()
+                    btn_label = Path(path).name if can_open else path
+                    if st.button(
+                        f"Open · {btn_label}",
+                        key=f"chat-open-{idx}-{path.replace('/', '_')}",
+                        disabled=not can_open,
+                        help=path,
+                    ):
+                        _open_workspace_file(path)
+                        st.rerun()
+                else:
+                    st.caption(f"{label} — {status}")
         else:
             with st.chat_message(role):
                 st.markdown(msg.get("content") or "")
@@ -1841,17 +2147,55 @@ def _save_editor_file(workspace: Path, rel: str) -> None:
     st.rerun()
 
 
+def _close_open_file() -> None:
+    """Clear the right-pane file selection without deleting the file."""
+    st.session_state.selected_file = None
+    st.session_state.editor_draft = ""
+    st.session_state.editor_disk = ""
+    st.session_state.editor_draft_path = None
+    st.session_state.editor_force_reload = False
+    st.session_state.editor_pending_save = False
+    st.session_state.editor_close_confirm = False
+    st.session_state.wb_preview_mode = False
+    st.session_state.wb_show_diff = False
+    st.session_state.fe_pick_key = None
+
+
 def _editor_header(workspace: Path, rel: str, *, dirty: bool, preview_kind: str | None) -> None:
     name = Path(rel).name
     left, right = st.columns([6, 4], gap="small")
     with left:
         title = escape(name)
-        if dirty:
+        if is_spreadsheet_file(rel):
+            st.markdown(f"**{title}** · Spreadsheet")
+        elif dirty:
             st.markdown(f"**{title}** · Modified")
         else:
             st.markdown(f"**{title}**")
         if rel != name:
             st.caption(rel)
+
+    if is_spreadsheet_file(rel):
+        with right:
+            dl, close = st.columns([3, 1], gap="small")
+            with dl:
+                try:
+                    path = resolve_workspace_file(workspace, rel)
+                    st.download_button(
+                        "Download",
+                        data=path.read_bytes(),
+                        file_name=name,
+                        mime="application/octet-stream",
+                        key=f"wb-ss-dl-{rel}",
+                        use_container_width=True,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            with close:
+                if st.button("✕", key="wb-close-ss", help="Close file", use_container_width=True):
+                    _close_open_file()
+                    st.rerun()
+        return
 
     actions: list[tuple[str, str, str]] = []
     if _diff_for_file(rel) or _change_file_count() > 0:
@@ -1863,6 +2207,7 @@ def _editor_header(workspace: Path, rel: str, *, dirty: bool, preview_kind: str 
     if dirty:
         actions.append(("save", "Save", "Save file"))
     actions.append(("more", "⋯", "More actions"))
+    actions.append(("close", "✕", "Close file"))
 
     with right:
         st.markdown('<div class="ca-wb-actions">', unsafe_allow_html=True)
@@ -1883,6 +2228,13 @@ def _editor_header(workspace: Path, rel: str, *, dirty: bool, preview_kind: str 
                 elif action == "save":
                     if st.button(label, key="wb-save", type="primary", help=help_text, use_container_width=True):
                         st.session_state.editor_pending_save = True
+                elif action == "close":
+                    if st.button(label, key="wb-close", help=help_text, use_container_width=True):
+                        if dirty:
+                            st.session_state.editor_close_confirm = True
+                        else:
+                            _close_open_file()
+                            st.rerun()
                 elif action == "more":
                     with st.popover(label, help=help_text):
                         if st.button("Reload", key="wb-reload"):
@@ -1909,12 +2261,25 @@ def _editor_header(workspace: Path, rel: str, *, dirty: bool, preview_kind: str 
             st.session_state.editor_pending_save = False
             st.rerun()
 
+    if st.session_state.get("editor_close_confirm"):
+        c1, c2, c3 = st.columns([3, 1, 1])
+        c1.caption(f"Close `{name}` without saving?")
+        if c2.button("Close", key="wb-close-yes", type="primary"):
+            _close_open_file()
+            st.rerun()
+        if c3.button("Cancel", key="wb-close-no"):
+            st.session_state.editor_close_confirm = False
+            st.rerun()
+
 
 def _editor_body(workspace: Path, rel: str, *, term_open: bool) -> None:
     try:
         path = resolve_workspace_file(workspace, rel)
     except PermissionError as exc:
         st.error(str(exc))
+        return
+    if is_spreadsheet_file(path):
+        _spreadsheet_preview_body(workspace, rel)
         return
     kind = classify_file(path)
     if kind == "binary":
@@ -2063,8 +2428,12 @@ def _workbench_panel(workspace: Path) -> None:
         return
 
     _sync_editor_buffer(workspace)
-    dirty = st.session_state.editor_draft != st.session_state.editor_disk
-    preview_kind = _preview_eligible(workspace, rel)
+    dirty = (
+        False
+        if is_spreadsheet_file(rel)
+        else st.session_state.editor_draft != st.session_state.editor_disk
+    )
+    preview_kind = None if is_spreadsheet_file(rel) else _preview_eligible(workspace, rel)
 
     if preview_kind is None:
         st.session_state.wb_preview_mode = False
@@ -2102,7 +2471,6 @@ def run_coding_agent_app(*, on_home: Callable[[], None] | None = None) -> None:
             "`pip install -r requirements.txt` 를 실행하세요."
         )
         return
-
     _init_state()
     _sync_main_split_from_query()
     _inject_theme(st.session_state.theme)
@@ -2110,10 +2478,16 @@ def run_coding_agent_app(*, on_home: Callable[[], None] | None = None) -> None:
     st.session_state.workspace = str(workspace)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+    cache_token = _bridge_cache_token()
+    if st.session_state.get("_bridge_cache_token") != cache_token:
+        st.cache_resource.clear()
+        st.session_state._bridge_cache_token = cache_token
+
     bridge = _bridge(
         str(workspace),
         st.session_state.model,
         bool(st.session_state.auto_approve),
+        cache_token,
     )
 
     with st.sidebar:
@@ -2142,12 +2516,47 @@ def run_coding_agent_app(*, on_home: Callable[[], None] | None = None) -> None:
             _agent_details_panel()
 
         blocked = st.session_state.pending_interrupt is not None
-        prompt = None
+        user_text = None
+        chat_files: list = []
+        pending = st.session_state.pending_user_prompt
+
+        if st.session_state.upload_status:
+            st.caption(st.session_state.upload_status)
+        _render_session_upload_openers(
+            workspace,
+            key_prefix="chat-attach",
+            caption="Attached (click to preview on the right)",
+        )
+
         if not blocked:
-            prompt = st.chat_input("Message the coding agent…")
+            raw = st.chat_input(
+                "Message the coding agent…",
+                accept_file="multiple",
+                file_type=["xlsx", "xls", "csv"],
+                max_upload_size=max(1, MAX_UPLOAD_BYTES // (1024 * 1024)),
+                disabled=bool(pending),
+            )
+            # Ignore new submissions while a deferred prompt is about to run.
+            if raw is not None and not pending:
+                if isinstance(raw, str):
+                    user_text = raw.strip() or None
+                else:
+                    user_text = (getattr(raw, "text", None) or "").strip() or None
+                    chat_files = list(getattr(raw, "files", None) or [])
         else:
             st.caption("Approve or reject to continue.")
-        user_text = prompt
+
+        if chat_files:
+            saved = _process_chat_uploads(workspace, chat_files)
+            if saved:
+                # Show spreadsheet on the right first; run the agent next turn.
+                if user_text:
+                    st.session_state.pending_user_prompt = user_text
+                st.rerun()
+
+        if pending and not blocked:
+            user_text = pending
+            st.session_state.pending_user_prompt = None
 
         if user_text and not blocked:
             if st.session_state.new_chat_mode or not st.session_state.thread_id:
@@ -2166,8 +2575,15 @@ def run_coding_agent_app(*, on_home: Callable[[], None] | None = None) -> None:
             with st.chat_message("assistant"):
                 status_box = st.status("Working…", expanded=False)
                 live = st.empty()
+                upload_ctx = format_upload_context(_current_upload_paths(workspace))
+                agent_prompt = (
+                    f"{upload_ctx}\n\n{user_text}" if upload_ctx else user_text
+                )
                 _consume_events(
-                    bridge.run(user_text, thread_id=st.session_state.thread_id),
+                    bridge.run(
+                        agent_prompt,
+                        thread_id=st.session_state.thread_id,
+                    ),
                     status_box,
                     live,
                     assistant_chunks,
@@ -2182,3 +2598,5 @@ def run_coding_agent_app(*, on_home: Callable[[], None] | None = None) -> None:
         )
         with st.container(height=PANEL_SCROLL_HEIGHT, border=True):
             _workbench_panel(workspace)
+
+

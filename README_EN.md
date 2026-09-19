@@ -84,7 +84,7 @@ Falls back to TF-IDF only when embeddings are unavailable.
 | **Research Notes** | Draft research notes or meeting minutes. References Memory + uploads (meeting mode: recording/transcript). Table preview, DOCX/HWPX download, save to Memory. |
 | **Proposal** | Upload an RFP and generate a center-part draft with compliance points, grounded in **research docs + regulations**. This is not a full proposal auto-generator. |
 | **Similarity** | Compare a new document against Memory (or two documents against each other) at the sentence, page, and image level. Uses MiniLM + pHash for duplicate and reuse detection. |
-| **Coding Agent** | Local Ollama + deepagents-code coding workbench: chat, file explorer, code editor, terminal, and thread management. Workspace stored under `data/coding_agent/`. |
+| **Coding Agent** | Local Ollama + deepagents-code coding workbench: chat, file explorer, editor, terminal, threads, and Excel/CSV inspect/analyze/transform. Workspace stored under `data/coding_agent/`. |
 
 ---
 
@@ -124,7 +124,7 @@ research_memory/
   kb/                  Knowledge Base (SQLite + hybrid index)
   engine/              Chat · Similarity · Proposal · Schedule · Research Note
                  docsim/  (similarity: MiniLM · parsers · pHash)
-coding_agent/          Coding agent workbench (deepagents-code · Ollama)
+coding_agent/          Coding agent workbench (deepagents-code · Ollama · Excel)
 ```
 
 ---

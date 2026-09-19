@@ -1,10 +1,9 @@
-"""Ollama availability helpers for the coding agent UI."""
+"""Ollama availability and model listing helpers."""
 
 from __future__ import annotations
 
 import json
 import urllib.request
-
 
 from coding_agent.config import OLLAMA_HOST
 

@@ -16,5 +16,13 @@ else
   exit 1
 fi
 
+# Excel Analyzer lives next to the home workspace, not this data volume.
+if [[ -z "${CODING_AGENT_EXCEL_ROOT:-}" && -d /home/eunbi/excel_ai_analyzer ]]; then
+  export CODING_AGENT_EXCEL_ROOT=/home/eunbi/excel_ai_analyzer
+fi
+if [[ -z "${CODING_AGENT_EXCEL_PYTHON:-}" && -x /home/eunbi/excel_ai_analyzer/.venv/bin/python ]]; then
+  export CODING_AGENT_EXCEL_PYTHON=/home/eunbi/excel_ai_analyzer/.venv/bin/python
+fi
+
 PORT="${PORT:-8505}"
 exec "$STREAMLIT" run app.py --server.port "$PORT" --server.address 127.0.0.1

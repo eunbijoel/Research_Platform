@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -53,6 +54,8 @@ BINARY_SUFFIXES = {
     ".dll",
     ".so",
     ".pyc",
+    ".xlsx",
+    ".xls",
 }
 
 USER_CMD_DENY = SHELL_DENY + (
@@ -77,6 +80,32 @@ def resolve_workspace_file(workspace: Path, rel: str) -> Path:
     target = (root / rel).resolve()
     target.relative_to(root)
     return target
+
+
+def delete_workspace_file(workspace: Path, rel: str) -> tuple[bool, str | None]:
+    """Delete a file or directory under workspace (dirs removed recursively)."""
+    try:
+        path = resolve_workspace_file(workspace, rel)
+    except PermissionError:
+        return False, "Invalid path"
+    except ValueError:
+        return False, "Path must stay inside the workspace"
+    root = workspace.resolve()
+    if path == root:
+        return False, "Cannot delete the workspace root"
+    if path.is_dir():
+        try:
+            shutil.rmtree(path)
+        except OSError:
+            return False, "Delete failed"
+        return True, None
+    if not path.is_file():
+        return False, "File not found"
+    try:
+        path.unlink()
+    except OSError:
+        return False, "Delete failed"
+    return True, None
 
 
 def classify_file(path: Path) -> str:
@@ -196,7 +225,6 @@ def preview_command(kind: str, target: Path, port: int) -> list[str]:
             "false",
         ]
     if kind == "fastapi":
-        # uvicorn module:app — user file often defines `app`
         return [
             sys.executable,
             "-m",
