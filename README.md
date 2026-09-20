@@ -5,68 +5,12 @@
 **An Organizational Research Intelligence Platform**
 
 과거 자료 기반의 지식베이스-> AI가 보관-이해-활용할 수 있도록 하는 시스템
+<img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/ecfd8372-693c-4800-ae4f-aaf28df333b2" />
 
 ### Goals
 
 1. Enable evidence-based reuse of organizational research assets
 2. Preserve and operationalize institutional research knowledge
-
----
-
-## How it works
-
-```mermaid
-flowchart TB
-  subgraph Users["Users / Center"]
-    U[Researchers]
-  end
-
-  subgraph Ingest["Write · keep Memory fresh"]
-    UP[Upload docs<br/>연구문서 / 참고자료]
-    DI[Document Intelligence<br/>parse · chunk · insight]
-    UP --> DI
-  end
-
-  subgraph MemoryCloud["Knowledge Base · Memory<br/>persistent organizational storage"]
-    KB[(Research Memory)]
-    IDX[Hybrid Index<br/>Embed + TF-IDF]
-    KB --- IDX
-  end
-
-  subgraph Use["Read · reuse with evidence"]
-    HOME[Home<br/>projects · search · upload]
-    CHAT[Chat]
-    NOTE[Research Note]
-    PROP[Proposal]
-    SIM[Similarity]
-    SCHED[Schedule]
-    CODE[Coding Agent]
-    EVI[Evidence<br/>연구문서 / 참고규정]
-    CHAT --> EVI
-    NOTE --> EVI
-    PROP --> EVI
-  end
-
-  U --> UP
-  DI -->|update / append| KB
-  U --> HOME
-  U --> CHAT
-  U --> NOTE
-  U --> PROP
-  U --> SIM
-  U --> SCHED
-  U --> CODE
-  HOME -->|browse| KB
-  SIM -->|compare docs| KB
-  SCHED -->|project dates| KB
-  EVI -->|retrieve| IDX
-  IDX --> KB
-
-  NOTE -.->|notes return| UP
-  PROP -.->|drafts return| UP
-```
-
-
 
 지원 형식 (문서): PDF, DOCX, TXT/MD, CSV, XLSX, HWP/HWPX  
 회의록 녹음: MP3, WAV, M4A, WEBM, OGG, FLAC (연구 기록 · 회의록 모드, 선택적 STT)
