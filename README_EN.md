@@ -110,9 +110,6 @@ Open in browser: [http://127.0.0.1:8505](http://127.0.0.1:8505)
 | `data/kb/*.pkl` | Search indexes (TF-IDF, vector) |
 | `data/coding_agent/` | Coding agent threads, checkpoints, and workspace |
 
-> `data/` is in `.gitignore` and is **not** tracked by Git.
-> Cloning the repo starts with an empty database.
-
 ---
 
 ## Project layout

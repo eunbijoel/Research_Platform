@@ -62,8 +62,6 @@ python3.12 -m venv .venv312
 | `data/kb/*.pkl` | 검색 인덱스 (TF-IDF, vector) |
 | `data/coding_agent/` | 코딩 에이전트 스레드·체크포인트·워크스페이스 |
 
-> `data/`는 `.gitignore`에 포함되어 Git에 올라가지 않습니다.
-
 ---
 
 
