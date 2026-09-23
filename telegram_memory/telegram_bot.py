@@ -1,7 +1,8 @@
-"""Telegram handlers for Research Memory Bot (skeleton: /start and /help)."""
+"""Telegram handlers for Research Memory Bot."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,7 @@ from telegram.ext import (
 )
 
 from auth import TelegramAuth, auth_ok
+from format_reply import format_reply
 
 if TYPE_CHECKING:
     from app import AppContext
@@ -25,14 +27,10 @@ HELP_TEXT = """Research Memory Bot
 
 이동 중에 연구자료·연구기록을 자연어로 묻고, 근거와 출처를 확인하는 봇입니다.
 
-지금은 뼈대만 동작합니다.
 - /start, /help : 이 안내
-- 질문 검색은 다음 단계에서 Memory Engine에 연결합니다.
-
-Streamlit 웹앱과 별도 프로세스이며, Coding Agent 봇과는 토큰·프로세스가 다릅니다.
+- 일반 채팅 : Memory에서 검색해 답합니다. 근거가 없으면 거절합니다.
+- 저장·수정은 하지 않습니다 (읽기 전용).
 """
-
-NOT_READY_TEXT = "질문 검색은 아직 연결되지 않았습니다. /help 를 참고하세요."
 
 
 class TelegramBotApp:
@@ -65,8 +63,23 @@ class TelegramBotApp:
     async def on_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._gate(update):
             return
-        if update.effective_message:
-            await update.effective_message.reply_text(NOT_READY_TEXT)
+        message = update.effective_message
+        if message is None:
+            return
+        question = (message.text or "").strip()
+        if not question:
+            return
+        status = await message.reply_text("Memory에서 근거를 찾는 중…")
+        try:
+            result = await asyncio.to_thread(self.ctx.memory.ask, question)
+        except Exception:
+            logger.exception("memory ask failed")
+            await status.edit_text("Memory에 연결하지 못했습니다.")
+            return
+        chunks = format_reply(result, repo=self.ctx.memory.repo)
+        await status.edit_text(chunks[0])
+        for extra in chunks[1:]:
+            await message.reply_text(extra)
 
     async def _gate(self, update: Update) -> bool:
         if auth_ok(update, self.auth):

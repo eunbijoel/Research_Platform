@@ -29,6 +29,9 @@ class Settings:
 class AppContext:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        from service import MemoryService
+
+        self.memory = MemoryService()
 
     def close(self) -> None:
         return None
@@ -68,10 +71,12 @@ def load_settings() -> Settings:
 def run_check() -> int:
     env_path = ROOT / ".env"
     example_path = ROOT / ".env.example"
-    print("research-memory-bot skeleton")
+    from service import memory_engine_status
+
+    print("research-memory-bot")
     print(f"env_example={example_path}")
-    print(f"env_file={'present' if env_path.exists() else 'missing (ok for skeleton)'}")
-    print("memory_engine=not connected yet")
+    print(f"env_file={'present' if env_path.exists() else 'missing (ok until token)'}")
+    print(f"memory_engine={memory_engine_status()}")
     print("telegram_polling=not started (use python app.py after filling .env)")
     return 0
 
