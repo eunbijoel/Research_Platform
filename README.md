@@ -53,6 +53,20 @@ python3.12 -m venv .venv312
 
 브라우저: [http://127.0.0.1:8505](http://127.0.0.1:8505)
 
+### Research Memory Bot (Telegram)
+
+Streamlit과 **별도 프로세스**. 별도 Bot Token. Memory는 `answer_question()`으로만 읽고, 저장·수정은 하지 않습니다. 허용된 user/chat만 사용합니다.
+
+```bash
+cd /mnt/data/eunbi/research-memory
+.venv312/bin/pip install -r telegram_memory/requirements.txt
+cp telegram_memory/.env.example telegram_memory/.env   # 토큰·user_id·chat_id
+./run_telegram.sh check    # 토큰 없이 연결 확인
+./run_telegram.sh          # long polling 시작
+```
+
+웹 앱은 기존처럼 `./run_app.sh` 입니다. 봇과 같이 쓰려면 둘 다 띄우면 됩니다.
+
 ### 데이터 저장
 
 | 경로 | 내용 |
@@ -61,6 +75,7 @@ python3.12 -m venv .venv312
 | `data/kb/memory.sqlite3` | 문서·프로젝트·일정·인덱스 메타데이터 |
 | `data/kb/*.pkl` | 검색 인덱스 (TF-IDF, vector) |
 | `data/coding_agent/` | 코딩 에이전트 스레드·체크포인트·워크스페이스 |
+| `telegram_memory/data/chat.sqlite3` | 텔레그램 질문·답·출처 로그 (봇 전용, Memory KB와 분리) |
 
 ---
 
@@ -76,6 +91,7 @@ research_memory/
   engine/              Chat · Similarity · Proposal · Schedule · Research Note
                  docsim/  (유사도: MiniLM · 파서 · pHash)
 coding_agent/          코딩 에이전트 워크벤치 (deepagents-code · Ollama · Excel)
+telegram_memory/       Research Memory Bot (Telegram, 읽기 전용)
 ```
 
 ---

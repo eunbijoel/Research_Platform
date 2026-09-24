@@ -101,6 +101,20 @@ python3.12 -m venv .venv312
 
 Open in browser: [http://127.0.0.1:8505](http://127.0.0.1:8505)
 
+### Research Memory Bot (Telegram)
+
+Separate process from Streamlit, with its own bot token. Reads Memory through `answer_question()` only (no writes). Allowlisted user/chat only.
+
+```bash
+cd /mnt/data/eunbi/research-memory
+.venv312/bin/pip install -r telegram_memory/requirements.txt
+cp telegram_memory/.env.example telegram_memory/.env   # token, user_id, chat_id
+./run_telegram.sh check    # no token required
+./run_telegram.sh          # start long polling
+```
+
+The web app is still `./run_app.sh`. Run both if you want Telegram and the browser at the same time.
+
 ### Data storage
 
 | Path | Contents |
@@ -109,6 +123,7 @@ Open in browser: [http://127.0.0.1:8505](http://127.0.0.1:8505)
 | `data/kb/memory.sqlite3` | All metadata — documents, projects, schedule items, indexes |
 | `data/kb/*.pkl` | Search indexes (TF-IDF, vector) |
 | `data/coding_agent/` | Coding agent threads, checkpoints, and workspace |
+| `telegram_memory/data/chat.sqlite3` | Telegram Q&A + citation log (bot-local; not the Memory KB) |
 
 ---
 
@@ -122,6 +137,7 @@ research_memory/
   engine/              Chat · Similarity · Proposal · Schedule · Research Note
                  docsim/  (similarity: MiniLM · parsers · pHash)
 coding_agent/          Coding agent workbench (deepagents-code · Ollama · Excel)
+telegram_memory/       Research Memory Bot (Telegram, read-only)
 ```
 
 ---
