@@ -8,6 +8,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from storage import DEFAULT_DB, ChatLogStore
+
 ROOT = Path(__file__).resolve().parent
 
 logging.basicConfig(
@@ -24,6 +26,7 @@ class Settings:
     telegram_bot_token: str
     telegram_allowed_user_id: int
     telegram_allowed_chat_id: int
+    chat_db_path: Path
 
 
 class AppContext:
@@ -32,9 +35,10 @@ class AppContext:
         from service import MemoryService
 
         self.memory = MemoryService()
+        self.store = ChatLogStore(settings.chat_db_path)
 
     def close(self) -> None:
-        return None
+        self.store.close()
 
 
 def _require(name: str, value: str | None) -> str:
@@ -57,6 +61,7 @@ def load_env_files() -> None:
 
 def load_settings() -> Settings:
     load_env_files()
+    db_raw = os.getenv("TELEGRAM_CHAT_DB", "").strip()
     return Settings(
         telegram_bot_token=_require("TELEGRAM_BOT_TOKEN", os.getenv("TELEGRAM_BOT_TOKEN")),
         telegram_allowed_user_id=int(
@@ -65,6 +70,7 @@ def load_settings() -> Settings:
         telegram_allowed_chat_id=int(
             _require("TELEGRAM_ALLOWED_CHAT_ID", os.getenv("TELEGRAM_ALLOWED_CHAT_ID"))
         ),
+        chat_db_path=Path(db_raw) if db_raw else DEFAULT_DB,
     )
 
 
@@ -77,6 +83,7 @@ def run_check() -> int:
     print(f"env_example={example_path}")
     print(f"env_file={'present' if env_path.exists() else 'missing (ok until token)'}")
     print(f"memory_engine={memory_engine_status()}")
+    print(f"chat_db={DEFAULT_DB}")
     print("telegram_polling=not started (use python app.py after filling .env)")
     return 0
 
@@ -91,9 +98,10 @@ def main(argv: list[str] | None = None) -> int:
     bot = TelegramBotApp(ctx)
     application = bot.build()
     logger.info(
-        "starting telegram long polling allowed_user=%s allowed_chat=%s",
+        "starting telegram long polling allowed_user=%s allowed_chat=%s chat_db=%s",
         ctx.settings.telegram_allowed_user_id,
         ctx.settings.telegram_allowed_chat_id,
+        ctx.settings.chat_db_path,
     )
     try:
         application.run_polling(allowed_updates=["message", "callback_query"])

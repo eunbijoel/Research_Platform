@@ -70,16 +70,60 @@ class TelegramBotApp:
         if not question:
             return
         status = await message.reply_text("Memory에서 근거를 찾는 중…")
+        user_id = int(update.effective_user.id) if update.effective_user else 0
+        chat_id = int(update.effective_chat.id) if update.effective_chat else 0
         try:
             result = await asyncio.to_thread(self.ctx.memory.ask, question)
         except Exception:
             logger.exception("memory ask failed")
             await status.edit_text("Memory에 연결하지 못했습니다.")
+            self._log_turn(
+                user_id=user_id,
+                chat_id=chat_id,
+                question=question,
+                answer="Memory에 연결하지 못했습니다.",
+                refused=True,
+                mode="error",
+                citations=[],
+            )
             return
         chunks = format_reply(result, repo=self.ctx.memory.repo)
         await status.edit_text(chunks[0])
         for extra in chunks[1:]:
             await message.reply_text(extra)
+        self._log_turn(
+            user_id=user_id,
+            chat_id=chat_id,
+            question=question,
+            answer=result.answer,
+            refused=bool(result.refused),
+            mode=result.mode,
+            citations=result.citations,
+        )
+
+    def _log_turn(
+        self,
+        *,
+        user_id: int,
+        chat_id: int,
+        question: str,
+        answer: str,
+        refused: bool,
+        mode: str,
+        citations: list,
+    ) -> None:
+        try:
+            self.ctx.store.add_turn(
+                telegram_user_id=user_id,
+                telegram_chat_id=chat_id,
+                question=question,
+                answer=answer,
+                refused=refused,
+                mode=mode,
+                citations=citations,
+            )
+        except Exception:
+            logger.exception("chat log write failed")
 
     async def _gate(self, update: Update) -> bool:
         if auth_ok(update, self.auth):
