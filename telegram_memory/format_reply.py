@@ -77,3 +77,46 @@ def format_reply(result: Any, *, repo: Any | None = None) -> list[str]:
         for i, cite in enumerate(cites, start=1):
             lines.append(_citation_line(i, cite, repo))
     return _split_telegram("\n".join(lines))
+
+
+def _schedule_item_line(item: dict[str, Any]) -> str:
+    try:
+        from research_memory.engine.schedule import (
+            chip_time_and_title,
+            event_type_label,
+            status_label,
+        )
+    except Exception:  # noqa: BLE001
+        chip_time_and_title = None  # type: ignore[assignment]
+        event_type_label = lambda v: str(v or "작업")  # noqa: E731
+        status_label = lambda v: str(v or "예정")  # noqa: E731
+
+    title_raw = str(item.get("title") or "").strip() or "(제목 없음)"
+    if chip_time_and_title is not None:
+        time_str, base_title = chip_time_and_title(title_raw, item.get("note"))
+    else:
+        time_str, base_title = None, title_raw
+    etype = event_type_label(item.get("event_type"))
+    status = status_label(item.get("status"))
+    project = str(item.get("project_id") or "").strip() or "—"
+    start = str(item.get("date") or "").strip()[:10]
+    end = str(item.get("end_date") or "").strip()[:10]
+    if end and end != start:
+        day = f"{start}~{end}"
+    else:
+        day = start or "—"
+    when = f"{time_str} " if time_str else ""
+    return f"• {day} {when}{base_title} [{etype}/{status}] · {project}"
+
+
+def format_schedule(query: Any) -> list[str]:
+    label = getattr(query, "label", None) or "일정"
+    items: list[dict[str, Any]] = list(getattr(query, "items", None) or [])
+    lines = [f"📅 {label}"]
+    if not items:
+        lines.append("등록된 일정이 없습니다.")
+        return _split_telegram("\n".join(lines))
+    for item in items:
+        if isinstance(item, dict):
+            lines.append(_schedule_item_line(item))
+    return _split_telegram("\n".join(lines))
