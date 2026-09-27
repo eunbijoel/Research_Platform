@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 from telegram import Update
 from telegram.ext import (
@@ -16,7 +16,7 @@ from telegram.ext import (
 )
 
 from auth import TelegramAuth, auth_ok
-from format_reply import format_reply
+from format_reply import format_reply, format_schedule
 
 if TYPE_CHECKING:
     from app import AppContext
@@ -28,6 +28,8 @@ HELP_TEXT = """Research Memory Bot
 이동 중에 연구자료·연구기록을 자연어로 묻고, 근거와 출처를 확인하는 봇입니다.
 
 - /start, /help : 이 안내
+- /today : 오늘 일정 (읽기)
+- /week : 이번 주 일정 (월~일, 읽기)
 - 일반 채팅 : Memory에서 검색해 답합니다. 근거가 없으면 거절합니다.
 - 저장·수정은 하지 않습니다 (읽기 전용).
 """
@@ -45,6 +47,8 @@ class TelegramBotApp:
         app = Application.builder().token(self.ctx.settings.telegram_bot_token).build()
         app.add_handler(CommandHandler("start", self.on_start))
         app.add_handler(CommandHandler("help", self.on_help))
+        app.add_handler(CommandHandler("today", self.on_today))
+        app.add_handler(CommandHandler("week", self.on_week))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_text))
         return app
 
@@ -59,6 +63,35 @@ class TelegramBotApp:
             return
         if update.effective_message:
             await update.effective_message.reply_text(HELP_TEXT)
+
+    async def on_today(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await self._reply_schedule(update, self.ctx.memory.list_today, "오늘 일정")
+
+    async def on_week(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await self._reply_schedule(update, self.ctx.memory.list_week, "이번 주 일정")
+
+    async def _reply_schedule(
+        self,
+        update: Update,
+        loader: Callable[[], Any],
+        waiting_label: str,
+    ) -> None:
+        if not await self._gate(update):
+            return
+        message = update.effective_message
+        if message is None:
+            return
+        status = await message.reply_text(f"{waiting_label}을 불러오는 중…")
+        try:
+            query = await asyncio.to_thread(loader)
+        except Exception:
+            logger.exception("schedule list failed")
+            await status.edit_text("일정을 불러오지 못했습니다.")
+            return
+        chunks = format_schedule(query)
+        await status.edit_text(chunks[0])
+        for extra in chunks[1:]:
+            await message.reply_text(extra)
 
     async def on_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._gate(update):
