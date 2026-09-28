@@ -18,6 +18,7 @@ from research_memory.kb.repository import KnowledgeRepository
 from research_memory.schema import ChatAnswer
 
 InventoryIntent = Literal["projects", "latest"]
+ScheduleIntent = Literal["today", "week", "last_meeting", "meeting_notes"]
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,12 @@ class LatestFolder:
     latest_document_title: str
 
 
+@dataclass(frozen=True)
+class MeetingContext:
+    item: dict[str, Any]
+    attachments: list[dict[str, Any]]
+
+
 _PROJECTS_INTENT = re.compile(
     r"(프로젝트\s*(수|몇|개수|목록|리스트)|"
     r"몇\s*개\s*의?\s*프로젝트|"
@@ -69,6 +76,35 @@ _LATEST_INTENT = re.compile(
     r"\blatest\b)",
     re.IGNORECASE,
 )
+_TODAY_SCHEDULE = re.compile(
+    r"(오늘\s*(일정|스케줄|미팅|회의)|"
+    r"오늘\s*뭐\s*(있어|있지)|"
+    r"\btoday\b)",
+    re.IGNORECASE,
+)
+_WEEK_SCHEDULE = re.compile(
+    r"(이번\s*주\s*(일정|스케줄|미팅|회의)|"
+    r"주간\s*(일정|스케줄)|"
+    r"\bthis\s*week\b)",
+    re.IGNORECASE,
+)
+_MEETING_NOTES = re.compile(
+    r"(회의록|미팅\s*록|"
+    r"(그날|그\s*날|당시|그때)\s*(어떤\s*)?(대화|얘기|논|안건|내용)|"
+    r"(뭐|무엇)\s*(를?\s*)?(얘기|대화|논의|결정)|"
+    r"(논의|안건|결정)\s*(사항|내용)|"
+    r"(첨부|연결된)\s*(회의록|문서)|"
+    r"meeting\s*(notes?|minutes))",
+    re.IGNORECASE,
+)
+_LAST_MEETING = re.compile(
+    r"(마지막|최근|지난|제일\s*최근)\s*(미팅|회의)|"
+    r"(미팅|회의)\s*(이\s*)?(뭐였|있었|언제)|"
+    r"last\s*meeting",
+    re.IGNORECASE,
+)
+_DATE_ISO = re.compile(r"(20\d{2})-(\d{1,2})-(\d{1,2})")
+_DATE_KR = re.compile(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일")
 
 
 def week_bounds(day: date | None = None) -> tuple[date, date]:
@@ -88,6 +124,43 @@ def detect_inventory_intent(text: str) -> InventoryIntent | None:
         return "latest"
     if _PROJECTS_INTENT.search(q):
         return "projects"
+    return None
+
+
+def detect_schedule_intent(text: str) -> ScheduleIntent | None:
+    q = (text or "").strip()
+    if not q:
+        return None
+    # Content about a meeting/notes beats listing.
+    if _MEETING_NOTES.search(q):
+        return "meeting_notes"
+    if _LAST_MEETING.search(q):
+        return "last_meeting"
+    if _TODAY_SCHEDULE.search(q):
+        return "today"
+    if _WEEK_SCHEDULE.search(q):
+        return "week"
+    return None
+
+
+def parse_mentioned_date(text: str, *, today: date | None = None) -> date | None:
+    """Pull an explicit calendar day from the question, if any."""
+    today = today or date.today()
+    q = text or ""
+    m = _DATE_ISO.search(q)
+    if m:
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            pass
+    m = _DATE_KR.search(q)
+    if m:
+        month, day = int(m.group(1)), int(m.group(2))
+        for year in (today.year, today.year - 1):
+            try:
+                return date(year, month, day)
+            except ValueError:
+                continue
     return None
 
 
@@ -120,6 +193,90 @@ class MemoryService:
             date_from=start.isoformat(),
             date_to=end.isoformat(),
             items=items,
+        )
+
+    def list_meetings(self) -> list[dict[str, Any]]:
+        items = self.repo.list_schedule_items()
+        meetings = [
+            i
+            for i in items
+            if str(i.get("event_type") or "").strip().lower() == "meeting"
+        ]
+        meetings.sort(
+            key=lambda i: (
+                str(i.get("date") or ""),
+                str(i.get("end_date") or i.get("date") or ""),
+                str(i.get("created_at") or ""),
+            ),
+            reverse=True,
+        )
+        return meetings
+
+    def latest_meeting(self) -> MeetingContext | None:
+        meetings = self.list_meetings()
+        if not meetings:
+            return None
+        item = meetings[0]
+        atts = self.repo.list_schedule_attachments(str(item.get("id") or ""))
+        return MeetingContext(item=item, attachments=atts)
+
+    def meeting_on(self, day: date) -> MeetingContext | None:
+        day_s = day.isoformat()
+        items = self.repo.list_schedule_items(date_from=day_s, date_to=day_s)
+        meetings = [
+            i
+            for i in items
+            if str(i.get("event_type") or "").strip().lower() == "meeting"
+        ]
+        if not meetings:
+            return None
+        meetings.sort(
+            key=lambda i: (str(i.get("created_at") or ""), str(i.get("title") or "")),
+            reverse=True,
+        )
+        item = meetings[0]
+        atts = self.repo.list_schedule_attachments(str(item.get("id") or ""))
+        return MeetingContext(item=item, attachments=atts)
+
+    def resolve_meeting(self, question: str) -> MeetingContext | None:
+        mentioned = parse_mentioned_date(question)
+        if mentioned is not None:
+            hit = self.meeting_on(mentioned)
+            if hit is not None:
+                return hit
+        return self.latest_meeting()
+
+    def ask_meeting_notes(self, question: str, ctx: MeetingContext | None = None) -> ChatAnswer:
+        ctx = ctx or self.resolve_meeting(question)
+        if ctx is None:
+            return ChatAnswer(
+                answer="일정에서 회의를 찾지 못했습니다. Home 일정에 회의를 등록해 주세요.",
+                citations=[],
+                refused=True,
+                mode="refused",
+            )
+        ready = [
+            a
+            for a in ctx.attachments
+            if (a.get("status") or "") == "ready" and (a.get("id") or "").strip()
+        ]
+        if not ready:
+            title = str(ctx.item.get("title") or "").strip() or "(제목 없음)"
+            day = str(ctx.item.get("date") or "")[:10] or "—"
+            return ChatAnswer(
+                answer=(
+                    f"{day} «{title}» 일정은 있지만 첨부된 회의록이 없습니다. "
+                    "Home 일정에서 회의록을 첨부하면 내용 질문에 답할 수 있습니다."
+                ),
+                citations=[],
+                refused=True,
+                mode="refused",
+            )
+        doc_ids = [str(a["id"]) for a in ready]
+        return answer_question(
+            question.strip(),
+            repo=self.repo,
+            document_ids=doc_ids,
         )
 
     def list_project_inventory(self) -> ProjectInventory:

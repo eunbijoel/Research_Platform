@@ -171,3 +171,28 @@ def format_latest(folder: Any | None) -> list[str]:
     if latest_doc:
         lines.append(f"  최신 문서: {latest_doc}")
     return _split_telegram("\n".join(lines))
+
+
+def format_meeting(ctx: Any | None, *, heading: str = "🗓️ 최근 회의") -> list[str]:
+    if ctx is None:
+        return _split_telegram("일정에서 회의를 찾지 못했습니다.")
+    item = getattr(ctx, "item", None) or {}
+    attachments = list(getattr(ctx, "attachments", None) or [])
+    lines = [heading]
+    if isinstance(item, dict):
+        lines.append(_schedule_item_line(item))
+        note = str(item.get("note") or "").strip()
+        if note:
+            lines.append(f"  메모: {note[:200]}")
+    if not attachments:
+        lines.append("  첨부 회의록: 없음")
+    else:
+        lines.append(f"  첨부 회의록 {len(attachments)}건:")
+        for att in attachments[:8]:
+            if not isinstance(att, dict):
+                continue
+            name = str(att.get("title") or att.get("filename") or att.get("id") or "문서")
+            status = str(att.get("status") or "")
+            suffix = f" ({status})" if status and status != "ready" else ""
+            lines.append(f"  · {name}{suffix}")
+    return _split_telegram("\n".join(lines))

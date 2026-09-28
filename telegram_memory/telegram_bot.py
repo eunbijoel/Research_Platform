@@ -18,11 +18,12 @@ from telegram.ext import (
 from auth import TelegramAuth, auth_ok
 from format_reply import (
     format_latest,
+    format_meeting,
     format_projects,
     format_reply,
     format_schedule,
 )
-from service import detect_inventory_intent
+from service import detect_inventory_intent, detect_schedule_intent
 
 if TYPE_CHECKING:
     from app import AppContext
@@ -39,7 +40,7 @@ HELP_TEXT = """Research Memory Bot
 - /today : 오늘 일정 (읽기)
 - /week : 이번 주 일정 (월~일, 읽기)
 - 일반 채팅 : Memory 문서에서 검색해 답합니다. 근거가 없으면 거절합니다.
-  (프로젝트 수·최신 폴더 질문은 자동으로 목록 조회로 처리)
+  (프로젝트 수·최신 폴더·오늘/주간 일정·마지막 회의·첨부 회의록 질문은 자동 처리)
 - 저장·수정은 하지 않습니다 (읽기 전용).
 """
 
@@ -137,6 +138,82 @@ class TelegramBotApp:
         for extra in chunks[1:]:
             await message.reply_text(extra)
 
+    async def _reply_last_meeting(self, update: Update) -> None:
+        if not await self._gate(update):
+            return
+        message = update.effective_message
+        if message is None:
+            return
+        status = await message.reply_text("최근 회의를 찾는 중…")
+        try:
+            ctx = await asyncio.to_thread(self.ctx.memory.latest_meeting)
+        except Exception:
+            logger.exception("latest meeting failed")
+            await status.edit_text("회의 일정을 불러오지 못했습니다.")
+            return
+        chunks = format_meeting(ctx)
+        await status.edit_text(chunks[0])
+        for extra in chunks[1:]:
+            await message.reply_text(extra)
+
+    async def _reply_meeting_notes(self, update: Update, question: str) -> None:
+        if not await self._gate(update):
+            return
+        message = update.effective_message
+        if message is None:
+            return
+        status = await message.reply_text("첨부 회의록에서 근거를 찾는 중…")
+        user_id = int(update.effective_user.id) if update.effective_user else 0
+        chat_id = int(update.effective_chat.id) if update.effective_chat else 0
+        try:
+            meeting = await asyncio.to_thread(self.ctx.memory.resolve_meeting, question)
+            result = await asyncio.to_thread(
+                self.ctx.memory.ask_meeting_notes, question, meeting
+            )
+        except Exception:
+            logger.exception("meeting notes ask failed")
+            await status.edit_text("회의록을 불러오지 못했습니다.")
+            self._log_turn(
+                user_id=user_id,
+                chat_id=chat_id,
+                question=question,
+                answer="회의록을 불러오지 못했습니다.",
+                refused=True,
+                mode="error",
+                citations=[],
+            )
+            return
+
+        header_chunks = format_meeting(meeting, heading="🗓️ 대상 회의")
+        answer_chunks = format_reply(result, repo=self.ctx.memory.repo)
+        # Lead with which meeting we used, then the RAG answer.
+        first = header_chunks[0]
+        if answer_chunks:
+            combined = f"{first}\n\n{answer_chunks[0]}"
+            out = [combined] + header_chunks[1:] + answer_chunks[1:]
+        else:
+            out = header_chunks
+        # Respect Telegram length by re-splitting if needed.
+        from format_reply import _split_telegram
+
+        chunks = _split_telegram(out[0]) + out[1:]
+        await status.edit_text(chunks[0])
+        for extra in chunks[1:]:
+            await message.reply_text(extra)
+        self._log_turn(
+            user_id=user_id,
+            chat_id=chat_id,
+            question=question,
+            answer=result.answer,
+            refused=bool(result.refused) or result.answer.startswith(
+                "메모리에 근거가 없어 답할 수 없습니다"
+            ),
+            mode=result.mode,
+            citations=[]
+            if result.answer.startswith("메모리에 근거가 없어 답할 수 없습니다")
+            else result.citations,
+        )
+
     async def on_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._gate(update):
             return
@@ -147,12 +224,26 @@ class TelegramBotApp:
         if not question:
             return
 
-        intent = detect_inventory_intent(question)
-        if intent == "projects":
+        inv = detect_inventory_intent(question)
+        if inv == "projects":
             await self._reply_inventory(update, "projects", "프로젝트 목록")
             return
-        if intent == "latest":
+        if inv == "latest":
             await self._reply_inventory(update, "latest", "최근 활동 폴더")
+            return
+
+        sched = detect_schedule_intent(question)
+        if sched == "today":
+            await self._reply_schedule(update, self.ctx.memory.list_today, "오늘 일정")
+            return
+        if sched == "week":
+            await self._reply_schedule(update, self.ctx.memory.list_week, "이번 주 일정")
+            return
+        if sched == "last_meeting":
+            await self._reply_last_meeting(update)
+            return
+        if sched == "meeting_notes":
+            await self._reply_meeting_notes(update, question)
             return
 
         status = await message.reply_text("Memory에서 근거를 찾는 중…")
@@ -186,7 +277,9 @@ class TelegramBotApp:
                 "메모리에 근거가 없어 답할 수 없습니다"
             ),
             mode=result.mode,
-            citations=[] if result.answer.startswith("메모리에 근거가 없어 답할 수 없습니다") else result.citations,
+            citations=[]
+            if result.answer.startswith("메모리에 근거가 없어 답할 수 없습니다")
+            else result.citations,
         )
 
     def _log_turn(
