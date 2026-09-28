@@ -821,6 +821,11 @@ def _home_page() -> None:
         c3.metric("Chunks", stats["chunk_count"])
         c4.metric("Last Updated", stats["last_indexed"])
 
+    st.markdown("### Upload")
+    with st.expander("Upload Documents", expanded=focus_upload or empty):
+        _upload_panel()
+
+    st.markdown("---")
     _library_projects_view(docs)
 
     if not empty:
@@ -828,11 +833,6 @@ def _home_page() -> None:
         st.markdown("### Search")
         with st.expander("Search documents", expanded=False):
             _library_search_view(docs, show_heading=False)
-
-    st.markdown("---")
-    st.markdown("### Upload")
-    with st.expander("Upload Documents", expanded=focus_upload or empty):
-        _upload_panel()
 
     if not empty:
         st.markdown("---")
