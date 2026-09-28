@@ -5,7 +5,7 @@
 **An Organizational Research Intelligence Platform**
 
 과거 자료 기반의 지식베이스-> AI가 보관-이해-활용할 수 있도록 하는 시스템
-<img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/ecfd8372-693c-4800-ae4f-aaf28df333b2" />
+<img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/00fa17b6-f8d6-4049-87e0-087053dd9051" />
 
 ### Goals
 
