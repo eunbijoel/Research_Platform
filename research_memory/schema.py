@@ -84,11 +84,3 @@ class ChatAnswer:
     citations: list[Citation]
     refused: bool = False
     mode: str = "llm"  # llm | extractive | refused
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "answer": self.answer,
-            "citations": [c.to_dict() for c in self.citations],
-            "refused": self.refused,
-            "mode": self.mode,
-        }

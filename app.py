@@ -699,9 +699,6 @@ def main() -> None:
     _sched_handle_query_params()
 
     page = st.session_state.page
-    if page == "Library":
-        st.session_state.page = PAGE_HOME
-        page = PAGE_HOME
 
     if page == PAGE_CODING_AGENT:
         from coding_agent.ui import run_coding_agent_app

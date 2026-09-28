@@ -191,8 +191,7 @@ class KnowledgeRepository:
             rows = conn.execute(
                 """
                 SELECT d.*,
-                       (SELECT COUNT(*) FROM chunks c WHERE c.document_id = d.id) AS chunk_count,
-                       (SELECT COUNT(*) FROM facts f WHERE f.document_id = d.id) AS fact_count
+                       (SELECT COUNT(*) FROM chunks c WHERE c.document_id = d.id) AS chunk_count
                 FROM documents d
                 ORDER BY d.created_at DESC
                 """
@@ -204,8 +203,7 @@ class KnowledgeRepository:
             row = conn.execute(
                 """
                 SELECT d.*,
-                       (SELECT COUNT(*) FROM chunks c WHERE c.document_id = d.id) AS chunk_count,
-                       (SELECT COUNT(*) FROM facts f WHERE f.document_id = d.id) AS fact_count
+                       (SELECT COUNT(*) FROM chunks c WHERE c.document_id = d.id) AS chunk_count
                 FROM documents d
                 WHERE d.id = ?
                 """,
