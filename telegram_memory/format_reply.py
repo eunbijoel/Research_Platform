@@ -68,6 +68,11 @@ def _split_telegram(text: str) -> list[str]:
 
 def format_reply(result: Any, *, repo: Any | None = None) -> list[str]:
     answer = (getattr(result, "answer", None) or "").strip() or "(빈 답변)"
+    refused = bool(getattr(result, "refused", False))
+    refusal_text = "메모리에 근거가 없어 답할 수 없습니다"
+    if refused or answer.startswith(refusal_text):
+        # Don't attach noisy RAG citations next to an explicit refusal.
+        return _split_telegram(answer)
     citations: Iterable[Any] = getattr(result, "citations", None) or []
     lines = [answer]
     cites = list(citations)[:MAX_CITATIONS]
@@ -119,4 +124,50 @@ def format_schedule(query: Any) -> list[str]:
     for item in items:
         if isinstance(item, dict):
             lines.append(_schedule_item_line(item))
+    return _split_telegram("\n".join(lines))
+
+
+def format_projects(inventory: Any) -> list[str]:
+    projects = list(getattr(inventory, "projects", None) or [])
+    total_docs = int(getattr(inventory, "total_documents", 0) or 0)
+    lines = [
+        f"📁 프로젝트 {len(projects)}개 · 문서 {total_docs}건",
+        "(Memory 등록 폴더 기준 · 읽기 전용)",
+    ]
+    if not projects:
+        lines.append("등록된 프로젝트가 없습니다.")
+        return _split_telegram("\n".join(lines))
+    for p in projects:
+        pid = getattr(p, "project_id", None) or (p.get("project_id") if isinstance(p, dict) else "")
+        title = getattr(p, "title", None) or (p.get("title") if isinstance(p, dict) else "") or pid
+        n_docs = getattr(p, "document_count", None)
+        if n_docs is None and isinstance(p, dict):
+            n_docs = p.get("document_count", 0)
+        last = getattr(p, "last_activity", None) or (
+            p.get("last_activity") if isinstance(p, dict) else ""
+        ) or "—"
+        if title and title != pid:
+            lines.append(f"• {pid} — {title}")
+        else:
+            lines.append(f"• {pid}")
+        lines.append(f"  문서 {int(n_docs or 0)}건 · 최근 {last}")
+    return _split_telegram("\n".join(lines))
+
+
+def format_latest(folder: Any | None) -> list[str]:
+    if folder is None:
+        return _split_telegram("최신 작업 폴더를 찾지 못했습니다.")
+    pid = getattr(folder, "project_id", "") or ""
+    title = getattr(folder, "title", "") or pid
+    last = getattr(folder, "last_activity", "") or "—"
+    n_docs = int(getattr(folder, "document_count", 0) or 0)
+    latest_doc = getattr(folder, "latest_document_title", "") or ""
+    lines = [
+        "🆕 제일 최근 활동 폴더",
+        f"• {pid}" + (f" — {title}" if title and title != pid else ""),
+        f"  최근 활동: {last}",
+        f"  문서 {n_docs}건",
+    ]
+    if latest_doc:
+        lines.append(f"  최신 문서: {latest_doc}")
     return _split_telegram("\n".join(lines))
