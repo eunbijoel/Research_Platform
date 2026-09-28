@@ -292,21 +292,32 @@ div[data-testid="stDialog"] .rm-dlg-toggle-sub {
   color: #64748b;
   margin: 0.1rem 0 0.25rem;
 }
-div[data-testid="stDialog"] .rm-dlg-repeat {
+div[data-testid="stDialog"] .rm-dlg-attach {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 0.75rem;
+  padding: 0.75rem 0.9rem 0.35rem;
+  margin: 0.35rem 0 0.15rem;
+}
+div[data-testid="stDialog"] .rm-dlg-attach-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+div[data-testid="stDialog"] .rm-dlg-attach-sub {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin: 0.15rem 0 0.35rem;
+}
+div[data-testid="stDialog"] .rm-dlg-attach-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  background: #ecfdf5;
-  border-radius: 0.75rem;
-  padding: 0.7rem 0.9rem;
-  margin: 0.35rem 0 0.15rem;
-  color: #166534;
-  font-weight: 600;
-}
-div[data-testid="stDialog"] .rm-dlg-repeat span {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: #64748b;
+  gap: 0.4rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid #e2e8f0;
+  font-size: 0.85rem;
+  color: #334155;
 }
 div[data-testid="stDialog"] .element-container:has(.rm-dlg-btn.complete) + .element-container button {
   color: #16a34a !important;
@@ -351,6 +362,39 @@ def _sched_clear_selection() -> None:
     st.session_state.pop("sched_selected_date", None)
     st.session_state.pop("sched_open_add", None)
     st.session_state.pop("sched_dlg_loaded", None)
+    # Drop uploader widgets tied to the previous dialog instance.
+    for key in list(st.session_state.keys()):
+        if str(key).startswith("sched_dlg_uploads_"):
+            st.session_state.pop(key, None)
+
+
+def _sched_upload_key(mode: str, item: dict | None, add_date: date | None) -> str:
+    if mode == "edit" and item:
+        return f"sched_dlg_uploads_{item['id']}"
+    day = (add_date or date.today()).isoformat()
+    return f"sched_dlg_uploads_new_{day}"
+
+
+def _sched_ingest_and_attach(schedule_id: str, uploads: list, project_id: str) -> list[str]:
+    """Ingest uploaded files into Memory and link them to the schedule item."""
+    errors: list[str] = []
+    for f in uploads or []:
+        try:
+            result = ingest_bytes(
+                f.getvalue(),
+                f.name,
+                repo=repo,
+                project_id=project_id or "",
+                document_role=ROLE_PROJECT,
+            )
+            doc_id = result.get("document_id") or result.get("id")
+            if not doc_id:
+                errors.append(f"{f.name}: ingest 결과에 document_id가 없습니다.")
+                continue
+            repo.attach_schedule_document(schedule_id, str(doc_id))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{f.name}: {exc}")
+    return errors
 
 
 def _sched_parse_date(value: str | None, fallback: date) -> date:
@@ -498,9 +542,46 @@ def _schedule_task_form(
         format_func=lambda pid: f"{pid} · {(project_map.get(pid) or {}).get('title') or pid}",
         key="sched_dlg_project",
     )
+
+    upload_key = _sched_upload_key(mode, item, add_date)
+    schedule_id = item["id"] if mode == "edit" and item else None
+    attached = (
+        repo.list_schedule_attachments(schedule_id) if schedule_id else []
+    )
+
     st.markdown(
-        '<div class="rm-dlg-repeat">🔄 반복 <span>준비 중</span></div>',
+        '<div class="rm-dlg-attach">'
+        '<p class="rm-dlg-attach-title">📎 파일첨부</p>'
+        '<p class="rm-dlg-attach-sub">회의록·연구노트 등을 올리면 Memory에 저장되고 이 일정에 연결됩니다.</p>'
+        "</div>",
         unsafe_allow_html=True,
+    )
+    if attached:
+        for doc in attached:
+            doc_id = doc["id"]
+            label = doc.get("title") or doc.get("filename") or doc_id
+            c_label, c_open, c_detach = st.columns([4.2, 0.9, 1.1])
+            c_label.markdown(
+                f'<div class="rm-dlg-attach-row">{_role_badge(doc)} '
+                f"{_html_esc(label)}</div>",
+                unsafe_allow_html=True,
+            )
+            if c_open.button("열기", key=f"sched-att-open-{doc_id}", use_container_width=True):
+                _sched_clear_selection()
+                _go(PAGE_HOME, doc_id=doc_id)
+            if c_detach.button(
+                "해제",
+                key=f"sched-att-detach-{doc_id}",
+                use_container_width=True,
+            ):
+                repo.detach_schedule_document(schedule_id, doc_id)
+                st.rerun()
+    uploads = st.file_uploader(
+        "파일 선택",
+        type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx", "hwp"],
+        accept_multiple_files=True,
+        key=upload_key,
+        label_visibility="collapsed",
     )
 
     st.markdown("")
@@ -531,6 +612,7 @@ def _schedule_task_form(
                     st.warning("제목을 입력하세요.")
                 else:
                     start_s, end_s = _sched_dialog_dates()
+                    project_id = st.session_state.sched_dlg_project
                     repo.update_schedule_item(
                         item_id,
                         title=title,
@@ -538,9 +620,14 @@ def _schedule_task_form(
                         end_date=end_s,
                         event_type=normalize_event_type(st.session_state.sched_dlg_type),
                         status=normalize_status(st.session_state.sched_dlg_status),
-                        project_id=st.session_state.sched_dlg_project,
+                        project_id=project_id,
                         note=(st.session_state.sched_dlg_note or "").strip(),
                     )
+                    attach_errors = _sched_ingest_and_attach(
+                        item_id, list(uploads or []), project_id
+                    )
+                    if attach_errors:
+                        st.session_state.sched_attach_flash = attach_errors
                     _sched_clear_selection()
                     st.rerun()
     else:
@@ -556,8 +643,9 @@ def _schedule_task_form(
                     st.warning("제목을 입력하세요.")
                 else:
                     start_s, end_s = _sched_dialog_dates()
-                    repo.add_schedule_item(
-                        project_id=st.session_state.sched_dlg_project,
+                    project_id = st.session_state.sched_dlg_project
+                    new_id = repo.add_schedule_item(
+                        project_id=project_id,
                         title=title,
                         event_type=normalize_event_type(st.session_state.sched_dlg_type),
                         date=start_s,
@@ -565,6 +653,11 @@ def _schedule_task_form(
                         status=normalize_status(st.session_state.sched_dlg_status),
                         note=(st.session_state.sched_dlg_note or "").strip(),
                     )
+                    attach_errors = _sched_ingest_and_attach(
+                        new_id, list(uploads or []), project_id
+                    )
+                    if attach_errors:
+                        st.session_state.sched_attach_flash = attach_errors
                     _sched_clear_selection()
                     st.rerun()
 
@@ -3157,6 +3250,11 @@ def _render_proposal_review(findings: list) -> None:
 
 def _schedule_panel() -> None:
     from datetime import date as date_cls
+
+    flash = st.session_state.pop("sched_attach_flash", None)
+    if flash:
+        for msg in flash:
+            st.warning(msg)
 
     st.caption("날짜 칸의 빈 곳을 클릭하면 일정을 추가하고, 일정 칩을 클릭하면 상세가 팝업으로 열립니다.")
 

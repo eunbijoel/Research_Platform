@@ -147,6 +147,17 @@ class KnowledgeRepository:
 
                 CREATE INDEX IF NOT EXISTS idx_schedule_project ON schedule_items(project_id);
                 CREATE INDEX IF NOT EXISTS idx_schedule_date ON schedule_items(date);
+
+                CREATE TABLE IF NOT EXISTS schedule_attachments (
+                    schedule_id TEXT NOT NULL,
+                    document_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (schedule_id, document_id),
+                    FOREIGN KEY(schedule_id) REFERENCES schedule_items(id),
+                    FOREIGN KEY(document_id) REFERENCES documents(id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_sched_attach_doc
+                    ON schedule_attachments(document_id);
                 """
             )
             self._migrate_schedule_end_date(conn)
@@ -206,6 +217,10 @@ class KnowledgeRepository:
         with self._conn() as conn:
             conn.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
             conn.execute("DELETE FROM facts WHERE document_id = ?", (document_id,))
+            conn.execute(
+                "DELETE FROM schedule_attachments WHERE document_id = ?",
+                (document_id,),
+            )
             conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
         self.rebuild_index()
 
@@ -699,7 +714,50 @@ class KnowledgeRepository:
 
     def delete_schedule_item(self, item_id: str) -> None:
         with self._conn() as conn:
+            conn.execute(
+                "DELETE FROM schedule_attachments WHERE schedule_id = ?",
+                (item_id,),
+            )
             conn.execute("DELETE FROM schedule_items WHERE id = ?", (item_id,))
+
+    def list_schedule_attachments(self, schedule_id: str) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT d.*
+                FROM schedule_attachments a
+                JOIN documents d ON d.id = a.document_id
+                WHERE a.schedule_id = ?
+                ORDER BY a.created_at ASC
+                """,
+                (schedule_id,),
+            ).fetchall()
+            return [_enrich_document(dict(r)) for r in rows]
+
+    def attach_schedule_document(self, schedule_id: str, document_id: str) -> None:
+        schedule_id = (schedule_id or "").strip()
+        document_id = (document_id or "").strip()
+        if not schedule_id or not document_id:
+            raise ValueError("schedule_id and document_id required")
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO schedule_attachments
+                    (schedule_id, document_id, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (schedule_id, document_id, _utc_now()),
+            )
+
+    def detach_schedule_document(self, schedule_id: str, document_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """
+                DELETE FROM schedule_attachments
+                WHERE schedule_id = ? AND document_id = ?
+                """,
+                (schedule_id, document_id),
+            )
 
     def get_schedule_item(self, item_id: str) -> dict[str, Any] | None:
         with self._conn() as conn:
