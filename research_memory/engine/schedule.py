@@ -7,6 +7,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import Any
 
+from research_memory.engine.kr_holidays import holiday_name, short_holiday_label
 from research_memory.kb.repository import KnowledgeRepository
 
 EVENT_TYPES = ("meeting", "submission", "task", "milestone")
@@ -202,20 +203,33 @@ def render_calendar_html(
                 cell_classes.append("out")
             if day == today:
                 cell_classes.append("today")
+            holiday = holiday_name(day)
+            if holiday:
+                cell_classes.append("holiday")
             if selected_date == date_key and not selected_item_id:
                 cell_classes.append("selected")
             if selected_item_id and any(it["id"] == selected_item_id for it in day_items):
                 cell_classes.append("selected")
 
+            tip = "빈 곳을 클릭해서 일정 추가"
+            if holiday:
+                tip = f"{holiday} · {tip}"
             parts.append(
                 f'<div class="{" ".join(cell_classes)}" '
                 f'data-sched-date="{html_mod.escape(date_key)}" '
-                f'title="빈 곳을 클릭해서 일정 추가">'
+                f'title="{html_mod.escape(tip)}">'
             )
             parts.append(
+                f'<div class="rm-cal-html-dayhead">'
                 f'<button type="button" class="rm-cal-html-daynum" '
                 f'data-sched-date="{html_mod.escape(date_key)}">{day.day}</button>'
             )
+            if holiday:
+                parts.append(
+                    f'<div class="rm-cal-html-holiday" title="{html_mod.escape(holiday)}">'
+                    f"{html_mod.escape(short_holiday_label(holiday))}</div>"
+                )
+            parts.append("</div>")
             parts.append(
                 f'<button type="button" class="rm-cal-html-hit" '
                 f'data-sched-date="{html_mod.escape(date_key)}" '
@@ -368,6 +382,15 @@ CALENDAR_IFRAME_CSS = """
   background: rgba(219, 234, 254, 0.45);
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18), 0 0 0 4px rgba(219, 234, 254, 0.85);
 }
+.rm-cal-html-dayhead {
+  position: relative;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.05rem;
+  min-height: 1.85rem;
+}
 .rm-cal-html-daynum,
 .rm-cal-html-hit,
 .rm-cal-html-bar {
@@ -389,6 +412,20 @@ CALENDAR_IFRAME_CSS = """
   background: transparent;
 }
 .rm-cal-html-daynum:hover { color: #2563eb; }
+.rm-cal-html-cell.holiday .rm-cal-html-daynum { color: #ef4444; }
+.rm-cal-html-cell.out.holiday .rm-cal-html-daynum { color: #fca5a5; }
+.rm-cal-html-holiday {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #ef4444;
+  line-height: 1.15;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.rm-cal-html-cell.out .rm-cal-html-holiday { color: #fca5a5; }
 .rm-cal-html-hit {
   position: absolute;
   inset: 0;
@@ -401,7 +438,7 @@ CALENDAR_IFRAME_CSS = """
   position: absolute;
   left: 0;
   right: 0;
-  top: 2.15rem;
+  top: 2.55rem;
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   grid-auto-rows: 1.35rem;
