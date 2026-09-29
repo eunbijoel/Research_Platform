@@ -1,0 +1,33 @@
+# Research Platform — Docker deploy (no Authentik yet)
+# Team URL (example): http://192.168.0.51:8610
+#
+# Usage:
+#   sudo docker compose up -d --build
+#   sudo docker compose logs -f research-platform
+#   sudo docker compose down
+#
+# Stop the local ./run_app.sh Streamlit first so SQLite/data is not shared by two writers.
+
+services:
+  research-platform:
+    build: .
+    image: research-platform:local
+    container_name: research-platform
+    ports:
+      # Host port in 8600–8800 range → container Streamlit 8505
+      - "8610:8505"
+    volumes:
+      # Persist KB, uploads, indexes, coding_agent workspace
+      - ./data:/app/data
+    environment:
+      RM_DATA_DIR: data
+      RM_OLLAMA_URL: http://host.docker.internal:11434/api/generate
+      RM_OLLAMA_BASE_URL: http://host.docker.internal:11434
+      RM_MODEL_NAME: gemma4:e4b
+      RM_EMBED_MODEL: nomic-embed-text
+      CODING_AGENT_OLLAMA: http://host.docker.internal:11434
+      TMPDIR: /tmp
+      PORT: "8505"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

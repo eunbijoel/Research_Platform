@@ -1,0 +1,20 @@
+# Build context only — runtime data comes from compose volume mounts.
+.venv/
+.venv312/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+.git/
+.cursor/
+*.egg-info/
+dist/
+build/
+data/
+telegram_memory/data/
+telegram_memory/.env
+telegram_memory/.pytest_cache/
+**/*.sqlite3
+**/*.pkl
+tmp/
+.DS_Store
