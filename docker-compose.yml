@@ -1,5 +1,5 @@
 # Research Platform — Docker deploy (no Authentik yet)
-# Team URL (example): http://192.168.0.51:8810
+# Team URL (example): http://192.168.0.51:51100
 #
 # Usage:
 #   sudo docker compose up -d --build
@@ -14,8 +14,8 @@ services:
     image: research-platform:local
     container_name: research-platform
     ports:
-      # Host port in 8800–8900 range → container Streamlit 8505
-      - "8810:8505"
+      # Host port → container Streamlit 8505
+      - "51100:8505"
     volumes:
       # Persist KB, uploads, indexes, coding_agent workspace
       - ./data:/app/data
