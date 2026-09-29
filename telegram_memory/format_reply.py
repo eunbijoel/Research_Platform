@@ -2,12 +2,37 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from typing import Any, Iterable
 
 TELEGRAM_LIMIT = 4000
-MAX_CITATIONS = 5
+MAX_CITATIONS = 3
 
 ROLE_REFERENCE = "reference_document"
+
+_DATE_IN_NAME = re.compile(r"(20\d{2}-\d{2}-\d{2})")
+_MD_BOLD = re.compile(r"\*\*(.+?)\*\*")
+_MD_ITALIC = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
+_MD_BOLD_US = re.compile(r"__(.+?)__")
+_MD_ITALIC_US = re.compile(r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)")
+_MD_HEADER = re.compile(r"(?m)^#{1,6}\s+")
+_MD_BULLET = re.compile(r"(?m)^\s*[-*]\s+")
+# LLM often dumps Evidence metadata / "사용 근거" after the real answer.
+_ANSWER_CUT = re.compile(
+    r"(?is)\n\s*(?:---+)\s*\n|"
+    r"\n\s*\*?\*?사용\s*근거\*?\*?\s*:?\s*\n|"
+    r"\n\s*출처\s*\n|"
+    r"\n\s*\[\d+\][^\n]*\bfile\s*="
+)
+_NOISE_PREFIXES = (
+    "meeting_minutes_",
+    "meeting_minute_",
+    "minutes_",
+    "manufacturing-x_",
+    "manufacturing_x_",
+    "manufacturingx_",
+)
 
 
 def citation_badge(cite: Any, repo: Any | None = None) -> str:
@@ -26,11 +51,94 @@ def citation_badge(cite: Any, repo: Any | None = None) -> str:
     return "[연구문서]"
 
 
+def short_source_label(filename: str, *, title: str | None = None) -> str:
+    """Compact Telegram source: date + short title (no extension / location)."""
+    raw = (title or filename or "문서").strip() or "문서"
+    stem = Path(raw).stem if raw.endswith((".md", ".docx", ".hwpx", ".hwp", ".pdf", ".txt")) else raw
+    day = None
+    m = _DATE_IN_NAME.search(stem)
+    if m:
+        day = m.group(1)
+        stem = stem.replace(m.group(1), " ", 1)
+    cleaned = stem
+    # Peel common filename prefixes repeatedly (meeting_minutes_ + Manufacturing-X_).
+    changed = True
+    while changed:
+        changed = False
+        lowered = cleaned.lower().lstrip(" _-")
+        cleaned = cleaned.lstrip(" _-")
+        for prefix in _NOISE_PREFIXES:
+            if lowered.startswith(prefix):
+                cleaned = cleaned[len(prefix) :]
+                changed = True
+                break
+    cleaned = re.sub(r"[_\s]+", " ", cleaned).strip(" -_.")
+    if len(cleaned) > 36:
+        cleaned = cleaned[:34].rstrip(" .…") + "…"
+    if day and cleaned:
+        return f"{day} · {cleaned}"
+    if day:
+        return day
+    return cleaned or "문서"
+
+
+def _citation_label(cite: Any, repo: Any | None = None) -> str:
+    filename = str(
+        getattr(cite, "filename", None) or getattr(cite, "document_id", None) or "문서"
+    )
+    title = None
+    doc_id = getattr(cite, "document_id", None)
+    if repo is not None and doc_id:
+        getter = getattr(repo, "get_document", None)
+        if callable(getter):
+            doc = getter(str(doc_id))
+            if isinstance(doc, dict):
+                title = str(doc.get("title") or "").strip() or None
+    return short_source_label(filename, title=title)
+
+
 def _citation_line(index: int, cite: Any, repo: Any | None = None) -> str:
-    name = (getattr(cite, "filename", None) or getattr(cite, "document_id", None) or "문서")
-    loc = (getattr(cite, "location", None) or "—")
-    badge = citation_badge(cite, repo)
-    return f"[{index}] {badge} {str(name).strip()} · {str(loc).strip()}"
+    return f"[{index}] {_citation_label(cite, repo)}"
+
+
+def _strip_markdown(text: str) -> str:
+    text = _MD_BOLD.sub(r"\1", text)
+    text = _MD_BOLD_US.sub(r"\1", text)
+    text = _MD_ITALIC.sub(r"\1", text)
+    text = _MD_ITALIC_US.sub(r"\1", text)
+    text = _MD_HEADER.sub("", text)
+    text = _MD_BULLET.sub("• ", text)
+    return text
+
+
+def _trim_answer_body(answer: str) -> str:
+    """Drop LLM-appended evidence dumps; keep the prose only."""
+    text = (answer or "").strip()
+    m = _ANSWER_CUT.search(text)
+    if m:
+        text = text[: m.start()].rstrip()
+    # Drop a trailing bare "[1], [2], [3]" line (footer covers sources).
+    text = re.sub(r"(?m)\n\s*\[\d+\](?:\s*[,·/]\s*\[\d+\])*\s*$", "", text).rstrip()
+    return text
+
+
+def _prepare_answer(answer: str) -> str:
+    return _strip_markdown(_trim_answer_body(answer)).strip() or "(빈 답변)"
+
+
+def _dedupe_citations(cites: list[Any], *, repo: Any | None = None) -> list[Any]:
+    seen: set[str] = set()
+    out: list[Any] = []
+    for cite in cites:
+        label = _citation_label(cite, repo)
+        key = label.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(cite)
+        if len(out) >= MAX_CITATIONS:
+            break
+    return out
 
 
 def _split_telegram(text: str) -> list[str]:
@@ -72,10 +180,11 @@ def format_reply(result: Any, *, repo: Any | None = None) -> list[str]:
     refusal_text = "메모리에 근거가 없어 답할 수 없습니다"
     if refused or answer.startswith(refusal_text):
         # Don't attach noisy RAG citations next to an explicit refusal.
-        return _split_telegram(answer)
+        return _split_telegram(_prepare_answer(answer))
     citations: Iterable[Any] = getattr(result, "citations", None) or []
-    lines = [answer]
-    cites = list(citations)[:MAX_CITATIONS]
+    body = _prepare_answer(answer)
+    lines = [body]
+    cites = _dedupe_citations(list(citations), repo=repo)
     if cites:
         lines.append("")
         lines.append("출처")
