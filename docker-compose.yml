@@ -1,5 +1,4 @@
 # Research Platform — Docker deploy (no Authentik yet)
-# Team URL (example): http://192.168.0.51:51100
 #
 # Usage:
 #   sudo docker compose up -d --build
