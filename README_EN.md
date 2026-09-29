@@ -103,7 +103,7 @@ Open in browser: [http://127.0.0.1:8505](http://127.0.0.1:8505)
 
 ### Research Memory Bot (Telegram)
 
-Separate process from Streamlit, with its own bot token. Reads Memory through `answer_question()` only (no writes). Allowlisted user/chat only. `/today` and `/week` list schedule items (read-only).
+Separate process from Streamlit, with its own bot token. Reads Memory through `answer_question()` only (no writes). Allowlisted users/chats only (`TELEGRAM_ALLOWED_USER_IDS` · `TELEGRAM_ALLOWED_CHAT_IDS`, comma-separated; group chat ids look like `-100…`). `/today` and `/week` list schedule items (read-only). In groups, ask with `@bot` mention or by replying to the bot.
 
 ```bash
 cd /mnt/data/eunbi/research-memory

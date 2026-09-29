@@ -24,8 +24,8 @@ logger = logging.getLogger("research-memory-bot")
 @dataclass(frozen=True)
 class Settings:
     telegram_bot_token: str
-    telegram_allowed_user_id: int
-    telegram_allowed_chat_id: int
+    telegram_allowed_user_ids: frozenset[int]
+    telegram_allowed_chat_ids: frozenset[int]
     chat_db_path: Path
 
 
@@ -46,9 +46,30 @@ def _require(name: str, value: str | None) -> str:
         raise SystemExit(
             f"missing required environment variable: {name}\n"
             "copy .env.example to .env and fill TELEGRAM_BOT_TOKEN / "
-            "TELEGRAM_ALLOWED_USER_ID / TELEGRAM_ALLOWED_CHAT_ID"
+            "TELEGRAM_ALLOWED_USER_IDS / TELEGRAM_ALLOWED_CHAT_IDS "
+            "(or singular TELEGRAM_ALLOWED_USER_ID / TELEGRAM_ALLOWED_CHAT_ID)"
         )
     return str(value).strip()
+
+
+def _parse_id_set(*env_names: str) -> frozenset[int]:
+    """Parse comma-separated int IDs from the first non-empty env among names."""
+    values: set[int] = set()
+    for name in env_names:
+        raw = os.getenv(name, "")
+        if raw is None or not str(raw).strip():
+            continue
+        for part in str(raw).split(","):
+            piece = part.strip()
+            if not piece:
+                continue
+            try:
+                values.add(int(piece))
+            except ValueError as exc:
+                raise SystemExit(
+                    f"invalid id in {name}: {piece!r} (expected integers, comma-separated)"
+                ) from exc
+    return frozenset(values)
 
 
 def load_env_files() -> None:
@@ -62,14 +83,22 @@ def load_env_files() -> None:
 def load_settings() -> Settings:
     load_env_files()
     db_raw = os.getenv("TELEGRAM_CHAT_DB", "").strip()
+    user_ids = _parse_id_set("TELEGRAM_ALLOWED_USER_IDS", "TELEGRAM_ALLOWED_USER_ID")
+    chat_ids = _parse_id_set("TELEGRAM_ALLOWED_CHAT_IDS", "TELEGRAM_ALLOWED_CHAT_ID")
+    if not user_ids:
+        raise SystemExit(
+            "missing TELEGRAM_ALLOWED_USER_IDS (or TELEGRAM_ALLOWED_USER_ID)\n"
+            "copy .env.example to .env and set one or more numeric Telegram user ids"
+        )
+    if not chat_ids:
+        raise SystemExit(
+            "missing TELEGRAM_ALLOWED_CHAT_IDS (or TELEGRAM_ALLOWED_CHAT_ID)\n"
+            "copy .env.example to .env and set private chat id(s) and/or group id(s)"
+        )
     return Settings(
         telegram_bot_token=_require("TELEGRAM_BOT_TOKEN", os.getenv("TELEGRAM_BOT_TOKEN")),
-        telegram_allowed_user_id=int(
-            _require("TELEGRAM_ALLOWED_USER_ID", os.getenv("TELEGRAM_ALLOWED_USER_ID"))
-        ),
-        telegram_allowed_chat_id=int(
-            _require("TELEGRAM_ALLOWED_CHAT_ID", os.getenv("TELEGRAM_ALLOWED_CHAT_ID"))
-        ),
+        telegram_allowed_user_ids=user_ids,
+        telegram_allowed_chat_ids=chat_ids,
         chat_db_path=Path(db_raw) if db_raw else DEFAULT_DB,
     )
 
@@ -95,12 +124,13 @@ def main(argv: list[str] | None = None) -> int:
 
     ctx = AppContext(load_settings())
     from telegram_bot import TelegramBotApp
+
     bot = TelegramBotApp(ctx)
     application = bot.build()
     logger.info(
-        "starting telegram long polling allowed_user=%s allowed_chat=%s chat_db=%s",
-        ctx.settings.telegram_allowed_user_id,
-        ctx.settings.telegram_allowed_chat_id,
+        "starting telegram long polling allowed_users=%s allowed_chats=%s chat_db=%s",
+        sorted(ctx.settings.telegram_allowed_user_ids),
+        sorted(ctx.settings.telegram_allowed_chat_ids),
         ctx.settings.chat_db_path,
     )
     try:

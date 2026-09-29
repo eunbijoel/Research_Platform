@@ -41,16 +41,47 @@ HELP_TEXT = """Research Memory Bot
 - /week : 이번 주 일정 (월~일, 읽기)
 - 일반 채팅 : Memory 문서에서 검색해 답합니다. 근거가 없으면 거절합니다.
   (프로젝트 수·최신 폴더·오늘/주간 일정·마지막 회의·첨부 회의록 질문은 자동 처리)
+- 그룹에서는 @봇이름 으로 부르거나, 봇 메시지에 답장해서 질문하세요.
 - 저장·수정은 하지 않습니다 (읽기 전용).
 """
+
+
+def _chat_is_group(chat: Any) -> bool:
+    return getattr(chat, "type", None) in {"group", "supergroup"}
+
+
+def _addressed_to_bot(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """In groups, only handle @mentions or replies to the bot (cut noise)."""
+    chat = update.effective_chat
+    message = update.effective_message
+    if chat is None or message is None:
+        return False
+    if not _chat_is_group(chat):
+        return True
+    reply = message.reply_to_message
+    bot_id = getattr(getattr(context, "bot", None), "id", None)
+    if reply is not None and getattr(reply, "from_user", None) is not None:
+        if bot_id is not None and reply.from_user.id == bot_id:
+            return True
+    bot_username = (getattr(context.bot, "username", None) or "").lower()
+    text = message.text or ""
+    for ent in message.entities or []:
+        if ent.type == "mention" and bot_username:
+            mention = text[ent.offset : ent.offset + ent.length].lstrip("@").lower()
+            if mention == bot_username:
+                return True
+        if ent.type == "text_mention" and getattr(ent, "user", None) is not None:
+            if bot_id is not None and ent.user.id == bot_id:
+                return True
+    return False
 
 
 class TelegramBotApp:
     def __init__(self, ctx: AppContext) -> None:
         self.ctx = ctx
         self.auth = TelegramAuth(
-            allowed_user_id=ctx.settings.telegram_allowed_user_id,
-            allowed_chat_id=ctx.settings.telegram_allowed_chat_id,
+            allowed_user_ids=ctx.settings.telegram_allowed_user_ids,
+            allowed_chat_ids=ctx.settings.telegram_allowed_chat_ids,
         )
 
     def build(self) -> Application:
@@ -217,10 +248,19 @@ class TelegramBotApp:
     async def on_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._gate(update):
             return
+        if not _addressed_to_bot(update, context):
+            return
         message = update.effective_message
         if message is None:
             return
         question = (message.text or "").strip()
+        if not question:
+            return
+
+        # Strip leading @botusername so intent/RAG see the real question.
+        bot_username = (getattr(context.bot, "username", None) or "").strip()
+        if bot_username and question.lower().startswith(f"@{bot_username.lower()}"):
+            question = question[len(bot_username) + 1 :].strip()
         if not question:
             return
 
