@@ -17,33 +17,33 @@ from telegram.ext import (
 
 from auth import TelegramAuth, auth_ok
 from format_reply import (
+    format_holidays,
     format_latest,
     format_meeting,
     format_projects,
     format_reply,
     format_schedule,
 )
-from service import detect_inventory_intent, detect_schedule_intent
+from service import detect_inventory_intent, detect_schedule_intent, parse_mentioned_month
 
 if TYPE_CHECKING:
     from app import AppContext
 
 logger = logging.getLogger("research-memory-bot")
 
-HELP_TEXT = """Research Memory Bot
-
-이동 중에 연구자료·연구기록을 자연어로 묻고, 근거와 출처를 확인하는 봇입니다.
-
-- /start, /help : 이 안내
-- /projects : 프로젝트 폴더 목록·개수 (읽기)
-- /latest : 최근 활동 폴더 (읽기)
-- /today : 오늘 일정 (읽기)
-- /week : 이번 주 일정 (월~일, 읽기)
-- 일반 채팅 : Memory 문서에서 검색해 답합니다. 근거가 없으면 거절합니다.
-  (프로젝트 수·최신 폴더·오늘/주간 일정·마지막 회의·첨부 회의록 질문은 자동 처리)
-- 그룹에서는 @봇이름 으로 부르거나, 봇 메시지에 답장해서 질문하세요.
-- 저장·수정은 하지 않습니다 (읽기 전용).
-"""
+def help_text(platform_url: str) -> str:
+    """Start/help body. Platform URL first so web + bot stay discoverable together."""
+    return (
+        f"Research Memory Platform\n{platform_url}\n\n"
+        "- /start, /help : 안내\n"
+        "- /projects : 프로젝트 폴더 목록·개수\n"
+        "- /latest : 최근 활동 폴더 \n"
+        "- /today - /week - /month : 일정 \n"
+        "- 일반 채팅 : Memory 문서에서 검색해 답합니다. 근거가 없으면 거절합니다.\n"
+        "  (프로젝트·일정·공휴일·마지막 회의·첨부 회의록 질문은 자동으로 구조화 조회)\n"
+        "- 그룹에서는 @봇이름 으로 부르거나, 봇 메시지에 답장해서 질문하세요.\n"
+        "- 저장·수정은 하지 않습니다 (읽기 전용)."
+    )
 
 
 def _chat_is_group(chat: Any) -> bool:
@@ -92,6 +92,7 @@ class TelegramBotApp:
         app.add_handler(CommandHandler("latest", self.on_latest))
         app.add_handler(CommandHandler("today", self.on_today))
         app.add_handler(CommandHandler("week", self.on_week))
+        app.add_handler(CommandHandler("month", self.on_month))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_text))
         return app
 
@@ -99,13 +100,17 @@ class TelegramBotApp:
         if not await self._gate(update):
             return
         if update.effective_message:
-            await update.effective_message.reply_text(HELP_TEXT)
+            await update.effective_message.reply_text(
+                help_text(self.ctx.settings.platform_url)
+            )
 
     async def on_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._gate(update):
             return
         if update.effective_message:
-            await update.effective_message.reply_text(HELP_TEXT)
+            await update.effective_message.reply_text(
+                help_text(self.ctx.settings.platform_url)
+            )
 
     async def on_projects(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._reply_inventory(update, "projects", "프로젝트 목록")
@@ -118,6 +123,9 @@ class TelegramBotApp:
 
     async def on_week(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._reply_schedule(update, self.ctx.memory.list_week, "이번 주 일정")
+
+    async def on_month(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await self._reply_schedule(update, self.ctx.memory.list_month, "이번 달 일정")
 
     async def _reply_inventory(
         self,
@@ -165,6 +173,24 @@ class TelegramBotApp:
             await status.edit_text("일정을 불러오지 못했습니다.")
             return
         chunks = format_schedule(query)
+        await status.edit_text(chunks[0])
+        for extra in chunks[1:]:
+            await message.reply_text(extra)
+
+    async def _reply_holidays(self, update: Update, question: str) -> None:
+        if not await self._gate(update):
+            return
+        message = update.effective_message
+        if message is None:
+            return
+        status = await message.reply_text("공휴일 정보를 확인하는 중…")
+        try:
+            query = await asyncio.to_thread(self.ctx.memory.lookup_holidays, question)
+        except Exception:
+            logger.exception("holiday lookup failed")
+            await status.edit_text("공휴일 정보를 불러오지 못했습니다.")
+            return
+        chunks = format_holidays(query)
         await status.edit_text(chunks[0])
         for extra in chunks[1:]:
             await message.reply_text(extra)
@@ -278,6 +304,22 @@ class TelegramBotApp:
             return
         if sched == "week":
             await self._reply_schedule(update, self.ctx.memory.list_week, "이번 주 일정")
+            return
+        if sched == "month":
+            target = parse_mentioned_month(question)
+            if target is None:
+                await self._reply_schedule(
+                    update, self.ctx.memory.list_month, "이번 달 일정"
+                )
+            else:
+                await self._reply_schedule(
+                    update,
+                    lambda: self.ctx.memory.list_month(target),
+                    f"{target.month}월 일정",
+                )
+            return
+        if sched == "holiday":
+            await self._reply_holidays(update, question)
             return
         if sched == "last_meeting":
             await self._reply_last_meeting(update)

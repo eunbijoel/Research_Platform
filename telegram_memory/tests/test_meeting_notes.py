@@ -33,6 +33,23 @@ def test_detect_today_week_intent() -> None:
     assert detect_schedule_intent("이번 주 일정") == "week"
 
 
+def test_detect_month_intent() -> None:
+    assert detect_schedule_intent("이번달 일정 알려줘") == "month"
+    assert detect_schedule_intent("이달 스케줄") == "month"
+    assert detect_schedule_intent("this month") == "month"
+    assert detect_schedule_intent("9월 일정") == "month"
+    assert detect_schedule_intent("8월 일정") == "month"
+    assert detect_schedule_intent("2025년 12월 일정") == "month"
+
+
+def test_detect_holiday_intent() -> None:
+    assert detect_schedule_intent("추석 날짜 알려줘") == "holiday"
+    assert detect_schedule_intent("이번 달 공휴일") == "holiday"
+    assert detect_schedule_intent("다음 공휴일 언제야") == "holiday"
+    assert detect_schedule_intent("설 일정 알려줘") == "holiday"
+    assert detect_schedule_intent("설날 언제야") == "holiday"
+
+
 def test_detect_schedule_no_intent() -> None:
     assert detect_schedule_intent("Manufacturing-X 목표가 뭐야?") is None
     assert detect_schedule_intent("프로젝트 목록") is None

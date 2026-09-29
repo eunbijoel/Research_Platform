@@ -127,6 +127,27 @@ def format_schedule(query: Any) -> list[str]:
     return _split_telegram("\n".join(lines))
 
 
+def format_holidays(query: Any) -> list[str]:
+    label = getattr(query, "label", None) or "공휴일"
+    items = list(getattr(query, "items", None) or [])
+    lines = [
+        f"🎌 {label}",
+        "(한국 법정 공휴일 캘린더 기준 · Memory 문서 아님)",
+    ]
+    if not items:
+        lines.append("해당하는 공휴일을 찾지 못했습니다.")
+        return _split_telegram("\n".join(lines))
+    for hit in items:
+        day = getattr(hit, "day", None)
+        name = getattr(hit, "name", None)
+        if day is None and isinstance(hit, dict):
+            day = hit.get("day")
+            name = hit.get("name")
+        day_s = day.isoformat() if hasattr(day, "isoformat") else str(day or "—")
+        lines.append(f"• {day_s} — {name or '공휴일'}")
+    return _split_telegram("\n".join(lines))
+
+
 def format_projects(inventory: Any) -> list[str]:
     projects = list(getattr(inventory, "projects", None) or [])
     total_docs = int(getattr(inventory, "total_documents", 0) or 0)

@@ -21,12 +21,16 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger("research-memory-bot")
 
 
+DEFAULT_PLATFORM_URL = "http://bigsoft.iptime.org:51100/"
+
+
 @dataclass(frozen=True)
 class Settings:
     telegram_bot_token: str
     telegram_allowed_user_ids: frozenset[int]
     telegram_allowed_chat_ids: frozenset[int]
     chat_db_path: Path
+    platform_url: str
 
 
 class AppContext:
@@ -95,11 +99,15 @@ def load_settings() -> Settings:
             "missing TELEGRAM_ALLOWED_CHAT_IDS (or TELEGRAM_ALLOWED_CHAT_ID)\n"
             "copy .env.example to .env and set private chat id(s) and/or group id(s)"
         )
+    platform_url = (os.getenv("PLATFORM_URL") or DEFAULT_PLATFORM_URL).strip()
+    if not platform_url:
+        platform_url = DEFAULT_PLATFORM_URL
     return Settings(
         telegram_bot_token=_require("TELEGRAM_BOT_TOKEN", os.getenv("TELEGRAM_BOT_TOKEN")),
         telegram_allowed_user_ids=user_ids,
         telegram_allowed_chat_ids=chat_ids,
         chat_db_path=Path(db_raw) if db_raw else DEFAULT_DB,
+        platform_url=platform_url.rstrip("/") + "/",
     )
 
 

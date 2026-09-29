@@ -18,7 +18,14 @@ from research_memory.kb.repository import KnowledgeRepository
 from research_memory.schema import ChatAnswer
 
 InventoryIntent = Literal["projects", "latest"]
-ScheduleIntent = Literal["today", "week", "last_meeting", "meeting_notes"]
+ScheduleIntent = Literal[
+    "today",
+    "week",
+    "month",
+    "last_meeting",
+    "meeting_notes",
+    "holiday",
+]
 
 
 @dataclass(frozen=True)
@@ -27,6 +34,18 @@ class ScheduleQuery:
     date_from: str
     date_to: str
     items: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class HolidayHit:
+    day: date
+    name: str
+
+
+@dataclass(frozen=True)
+class HolidayQuery:
+    label: str
+    items: list[HolidayHit]
 
 
 @dataclass(frozen=True)
@@ -88,6 +107,24 @@ _WEEK_SCHEDULE = re.compile(
     r"\bthis\s*week\b)",
     re.IGNORECASE,
 )
+_MONTH_SCHEDULE = re.compile(
+    r"(이번\s*달\s*(일정|스케줄|미팅|회의)|"
+    r"이달\s*(일정|스케줄)|"
+    r"월간\s*(일정|스케줄)|"
+    r"(이번|이)\s*달\s*뭐\s*(있어|있지)|"
+    r"(20\d{2}\s*년\s*)?\d{1,2}\s*월(?!\s*\d)\s*(의\s*)?(일정|스케줄|미팅|회의)|"
+    r"\bthis\s*month\b)",
+    re.IGNORECASE,
+)
+_HOLIDAY_INTENT = re.compile(
+    r"(공휴일|법정\s*휴일|쉬는\s*날|"
+    r"설날|(?:^|[^\w가-힣])설(?:[^\w가-힣]|$)|"
+    r"추석|삼일절|어린이날|현충일|광복절|개천절|한글날|"
+    r"성탄|크리스마스|신정|부처님오신날|근로자의\s*날|노동절|"
+    r"대체\s*공휴일|"
+    r"\bholidays?\b)",
+    re.IGNORECASE,
+)
 _MEETING_NOTES = re.compile(
     r"(회의록|미팅\s*록|"
     r"(그날|그\s*날|당시|그때)\s*(어떤\s*)?(대화|얘기|논|안건|내용)|"
@@ -106,12 +143,39 @@ _LAST_MEETING = re.compile(
 _DATE_ISO = re.compile(r"(20\d{2})-(\d{1,2})-(\d{1,2})")
 _DATE_KR = re.compile(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일")
 
+_HOLIDAY_SEARCH_TERMS = (
+    ("추석", ("추석",)),
+    ("설날", ("설날", "설")),
+    ("삼일절", ("삼일절",)),
+    ("어린이날", ("어린이날",)),
+    ("현충일", ("현충일",)),
+    ("광복절", ("광복절",)),
+    ("개천절", ("개천절",)),
+    ("한글날", ("한글날",)),
+    ("신정", ("신정",)),
+    ("부처님오신날", ("부처님오신날", "부처님")),
+    ("성탄", ("성탄", "기독탄신", "크리스마스")),
+    ("근로자의 날", ("근로자", "노동절")),
+    ("선거", ("선거",)),
+)
+
 
 def week_bounds(day: date | None = None) -> tuple[date, date]:
     """Monday–Sunday containing ``day`` (default: today)."""
     day = day or date.today()
     start = day - timedelta(days=day.weekday())
     end = start + timedelta(days=6)
+    return start, end
+
+
+def month_bounds(day: date | None = None) -> tuple[date, date]:
+    """First–last day of the month containing ``day``."""
+    day = day or date.today()
+    start = day.replace(day=1)
+    if start.month == 12:
+        end = date(start.year, 12, 31)
+    else:
+        end = date(start.year, start.month + 1, 1) - timedelta(days=1)
     return start, end
 
 
@@ -136,10 +200,32 @@ def detect_schedule_intent(text: str) -> ScheduleIntent | None:
         return "meeting_notes"
     if _LAST_MEETING.search(q):
         return "last_meeting"
+    if _HOLIDAY_INTENT.search(q):
+        return "holiday"
     if _TODAY_SCHEDULE.search(q):
         return "today"
     if _WEEK_SCHEDULE.search(q):
         return "week"
+    if _MONTH_SCHEDULE.search(q):
+        return "month"
+    return None
+
+
+def parse_mentioned_month(text: str, *, today: date | None = None) -> date | None:
+    """Pull an explicit calendar month (as the 1st) from the question, if any."""
+    today = today or date.today()
+    q = text or ""
+    m = re.search(r"(20\d{2})\s*년\s*(\d{1,2})\s*월", q)
+    if m:
+        year, month = int(m.group(1)), int(m.group(2))
+        if 1 <= month <= 12:
+            return date(year, month, 1)
+    # "9월 일정" — month only (not "9월 18일")
+    m = re.search(r"(\d{1,2})\s*월(?!\s*\d)", q)
+    if m:
+        month = int(m.group(1))
+        if 1 <= month <= 12:
+            return date(today.year, month, 1)
     return None
 
 
@@ -193,6 +279,103 @@ class MemoryService:
             date_from=start.isoformat(),
             date_to=end.isoformat(),
             items=items,
+        )
+
+    def list_month(self, day: date | None = None) -> ScheduleQuery:
+        start, end = month_bounds(day)
+        items = self.repo.list_schedule_items(
+            date_from=start.isoformat(),
+            date_to=end.isoformat(),
+        )
+        return ScheduleQuery(
+            label=f"{start.year}-{start.month:02d} 일정 ({start.isoformat()} ~ {end.isoformat()})",
+            date_from=start.isoformat(),
+            date_to=end.isoformat(),
+            items=items,
+        )
+
+    def lookup_holidays(
+        self,
+        question: str,
+        *,
+        today: date | None = None,
+    ) -> HolidayQuery:
+        """Answer holiday questions from the same KR calendar used by the web UI."""
+        from research_memory.engine.kr_holidays import kr_holidays_for_year
+
+        today = today or date.today()
+        q = (question or "").strip()
+        pool: dict[date, str] = {}
+        for year in (today.year - 1, today.year, today.year + 1):
+            pool.update(kr_holidays_for_year(year))
+
+        # This month's holidays
+        if re.search(r"(이번\s*달|이달).*(공휴일|휴일)|(공휴일|휴일).*(이번\s*달|이달)", q):
+            start, end = month_bounds(today)
+            hits = [
+                HolidayHit(day=d, name=n)
+                for d, n in sorted(pool.items())
+                if start <= d <= end
+            ]
+            return HolidayQuery(
+                label=f"이번 달 공휴일 ({start.year}-{start.month:02d})",
+                items=hits,
+            )
+
+        # Named holiday (추석, 설날, …)
+        terms: list[str] = []
+        for _label, aliases in _HOLIDAY_SEARCH_TERMS:
+            matched = False
+            for alias in aliases:
+                if len(alias) >= 2 and alias in q:
+                    matched = True
+                    break
+                # Allow bare "설" as Seollal (avoid matching inside other words).
+                if alias == "설" and re.search(r"(?:^|[^\w가-힣])설(?:[^\w가-힣]|$)", q):
+                    matched = True
+                    break
+            if matched:
+                terms.extend(aliases)
+        if terms:
+            hits = [
+                HolidayHit(day=d, name=n)
+                for d, n in sorted(pool.items())
+                if any(t in n for t in terms)
+                and d.year in {today.year, today.year + 1}
+            ]
+            this_year = [h for h in hits if h.day.year == today.year]
+            next_year = [h for h in hits if h.day.year == today.year + 1]
+            # Prefer this calendar year (even if already past); append next year if all past.
+            if this_year:
+                chosen = list(this_year)
+                if next_year and all(h.day < today for h in this_year):
+                    chosen.extend(next_year)
+            else:
+                chosen = next_year
+            label = "공휴일"
+            if re.search(r"(?:^|[^\w가-힣])설(?:[^\w가-힣]|$)", q) or "설날" in q:
+                label = "설날"
+            else:
+                for alias in terms:
+                    if alias in q and len(alias) >= 2:
+                        label = alias
+                        break
+            return HolidayQuery(label=f"{label} 날짜", items=chosen[:10])
+
+        # Next holiday / generic list from today
+        upcoming = [
+            HolidayHit(day=d, name=n)
+            for d, n in sorted(pool.items())
+            if d >= today and d.year <= today.year + 1
+        ]
+        if re.search(r"다음\s*공휴일|다가오는\s*공휴일|언제\s*쉬", q):
+            return HolidayQuery(
+                label="다음 공휴일",
+                items=upcoming[:3],
+            )
+        return HolidayQuery(
+            label=f"공휴일 ({today.year})",
+            items=upcoming[:12],
         )
 
     def list_meetings(self) -> list[dict[str, Any]]:
