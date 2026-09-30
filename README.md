@@ -5,7 +5,7 @@
 **An Organizational Research Intelligence Platform**
 
 과거 자료 기반의 지식베이스-> AI가 보관-이해-활용할 수 있도록 하는 시스템
-<img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/00fa17b6-f8d6-4049-87e0-087053dd9051" />
+![image](https://github.com/user-attachments/assets/00fa17b6-f8d6-4049-87e0-087053dd9051)
 
 ### Goals
 
@@ -25,14 +25,14 @@
 ## UI tabs
 
 
-| Tab        | 하는 일                                                                                               |
-| ---------- | -------------------------------------------------------------------------------------------------- |
-| **홈**      | Research Memory 대시보드. 프로젝트·검색·업로드·최근 문서, 문서 상세·역할(연구문서/참고자료)·Document Insight |
-| **일정 관리**  | 과제별 회의·제출·작업·마일스톤을 월간 캘린더로 등록·조회(알림 및 외부 캘린더 연동은 [myown](https://github.com/sumin-ma-1/myown)을 참고) |
-| **채팅**     | Memory에 질문. 답변마다 출처(파일·위치)와 `[연구문서]`/`[참고규정]` 구분을 붙입니다. 근거가 없으면 거절합니다                              |
-| **연구 기록**  | 연구노트·회의록 초안. Memory + 추가자료(회의록은 녹음/트랜스크립트) 참고, 표 미리보기·DOCX/HWPX 다운로드·Memory 저장                     |
-| **제안서**    | RFP/공고문을 넣고, **연구문서 + 참고규정(운영요령)** 근거로 센터 파트 초안·준수 포인트를 만듭니다. 전체 제안서 자동완성이 아닙니다                    |
-| **유사도 검토** | 새 문서 ↔ Memory(또는 문서끼리) 문장·페이지·이미지를 비교합니다. MiniLM + pHash, 표/페이지 PNG로 중복·재사용 검토                     |
+| Tab         | 하는 일                                                                                                                                   |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **홈**       | Research Memory 대시보드. 프로젝트·검색·업로드·최근 문서, 문서 상세·역할(연구문서/참고자료)·Document Insight                                                          |
+| **일정 관리**   | 과제별 회의·제출·작업·마일스톤을 월간 캘린더로 등록·조회(알림 및 외부 캘린더 연동은 [myown](https://github.com/sumin-ma-1/myown)을 참고)                                     |
+| **채팅**      | Memory에 질문. 답변마다 출처(파일·위치)와 `[연구문서]`/`[참고규정]` 구분을 붙입니다. 근거가 없으면 거절합니다                                                                  |
+| **연구 기록**   | 연구노트·회의록 초안. Memory + 추가자료(회의록은 녹음/트랜스크립트) 참고, 표 미리보기·DOCX/HWPX 다운로드·Memory 저장                                                         |
+| **제안서**     | RFP/공고문을 넣고, **연구문서 + 참고규정(운영요령)** 근거로 센터 파트 초안·준수 포인트를 만듭니다. 전체 제안서 자동완성이 아닙니다                                                        |
+| **유사도 검토**  | 새 문서 ↔ Memory(또는 문서끼리) 문장·페이지·이미지를 비교합니다. MiniLM + pHash, 표/페이지 PNG로 중복·재사용 검토                                                         |
 | **코딩 에이전트** | 로컬 Ollama + deepagents-code 코딩 워크벤치. 채팅·파일 탐색기·코드 에디터·터미널·스레드·Excel/CSV 첨부·inspect/analyze/transform. 워크스페이스는 `data/coding_agent/`에 저장 |
 
 
@@ -62,24 +62,31 @@ cd /mnt/data/eunbi/research-memory
 .venv312/bin/pip install -r telegram_memory/requirements.txt
 cp telegram_memory/.env.example telegram_memory/.env   # 토큰·user_id·chat_id
 ./run_telegram.sh check    # 토큰 없이 연결 확인
-./run_telegram.sh          # long polling 시작
+./run_telegram.sh          # Bot API long polling
+```
+
+**Telethon 유저 계정 MVP** (Bot과 별도, 기존 Bot API 유지): 일반 Telegram 계정으로 지정 채팅을 듣고 같은 Memory 로직으로 답합니다. 히스토리 수집·Memory 저장 없음.
+
+```bash
+# .env 에 TELETHON_API_ID / TELETHON_API_HASH / TELETHON_CHAT_IDS (/ TELETHON_TRIGGER)
+./run_telegram.sh user     # 첫 실행 시 터미널에서 폰·로그인 코드 입력
 ```
 
 웹 앱은 기존처럼 `./run_app.sh` 입니다. 봇과 같이 쓰려면 둘 다 띄우면 됩니다.
 
 ### 데이터 저장
 
-| 경로 | 내용 |
-| --- | --- |
-| `data/raw/` | 업로드 원본 파일 |
-| `data/kb/memory.sqlite3` | 문서·프로젝트·일정·인덱스 메타데이터 |
-| `data/kb/*.pkl` | 검색 인덱스 (TF-IDF, vector) |
-| `data/coding_agent/` | 코딩 에이전트 스레드·체크포인트·워크스페이스 |
+
+| 경로                                  | 내용                                    |
+| ----------------------------------- | ------------------------------------- |
+| `data/raw/`                         | 업로드 원본 파일                             |
+| `data/kb/memory.sqlite3`            | 문서·프로젝트·일정·인덱스 메타데이터                  |
+| `data/kb/*.pkl`                     | 검색 인덱스 (TF-IDF, vector)               |
+| `data/coding_agent/`                | 코딩 에이전트 스레드·체크포인트·워크스페이스              |
 | `telegram_memory/data/chat.sqlite3` | 텔레그램 질문·답·출처 로그 (봇 전용, Memory KB와 분리) |
 
+
 ---
-
-
 
 ## Project layout
 
@@ -95,8 +102,6 @@ telegram_memory/       Research Memory Bot (Telegram, 읽기 전용)
 ```
 
 ---
-
-
 
 ## Credits
 

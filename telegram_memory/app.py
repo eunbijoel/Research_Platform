@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sys
@@ -9,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from storage import DEFAULT_DB, ChatLogStore
+
 
 ROOT = Path(__file__).resolve().parent
 
@@ -122,6 +124,7 @@ def run_check() -> int:
     print(f"memory_engine={memory_engine_status()}")
     print(f"chat_db={DEFAULT_DB}")
     print("telegram_polling=not started (use python app.py after filling .env)")
+    print("telethon_user=python app.py user  (needs TELETHON_API_ID/HASH/CHAT_IDS)")
     return 0
 
 
@@ -129,6 +132,11 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "check":
         return run_check()
+    if argv and argv[0] == "user":
+        load_env_files()
+        from telethon_user import run_telethon_user
+
+        return asyncio.run(run_telethon_user())
 
     ctx = AppContext(load_settings())
     from telegram_bot import TelegramBotApp
