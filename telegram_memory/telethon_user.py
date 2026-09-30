@@ -1,8 +1,9 @@
-"""Minimal Telethon user-account MVP.
+"""Telethon Research Assistant MVP (user account, 1:1 DM only).
 
-Listens on allowlisted chats, answers via MemoryService (same router as Bot logic),
-replies with the logged-in user account. Does not scrape history or write Memory.
-Bot API path (telegram_bot.py) is unchanged and separate.
+Log in as a dedicated Assistant Telegram account. Team members DM that account;
+allowlisted senders get answers via MemoryService / user_router; replies go back
+in the same DM. No group listening, no history scrape, no Memory writes.
+Bot API (telegram_bot.py) stays separate and unchanged.
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,8 +26,7 @@ class TelethonSettings:
     api_id: int
     api_hash: str
     session_path: Path
-    chat_ids: frozenset[int]
-    trigger: str  # empty = respond to every new text in allowlisted chats
+    allowed_user_ids: frozenset[int]
 
 
 def load_telethon_settings() -> TelethonSettings:
@@ -46,11 +45,11 @@ def load_telethon_settings() -> TelethonSettings:
     except ValueError as exc:
         raise SystemExit(f"invalid TELETHON_API_ID: {api_id_raw!r}") from exc
 
-    chat_ids = _parse_id_set("TELETHON_CHAT_IDS")
-    if not chat_ids:
+    allowed = _parse_id_set("TELETHON_ALLOWED_USER_IDS", "TELETHON_ALLOWED_USER_ID")
+    if not allowed:
         raise SystemExit(
-            "missing TELETHON_CHAT_IDS\n"
-            "set one or more chat ids (comma-separated), e.g. -100xxxxxxxxxx"
+            "missing TELETHON_ALLOWED_USER_IDS\n"
+            "set team member Telegram user ids (comma-separated) who may DM the Assistant"
         )
 
     session_raw = (os.getenv("TELETHON_SESSION") or "").strip()
@@ -59,51 +58,50 @@ def load_telethon_settings() -> TelethonSettings:
         session_path = (ROOT / session_path).resolve()
     session_path.parent.mkdir(parents=True, exist_ok=True)
 
-    trigger = (os.getenv("TELETHON_TRIGGER") or "").strip()
     return TelethonSettings(
         api_id=api_id,
         api_hash=api_hash,
         session_path=session_path,
-        chat_ids=chat_ids,
-        trigger=trigger,
+        allowed_user_ids=allowed,
     )
 
 
-def _strip_trigger(text: str, trigger: str) -> str | None:
-    """Return question without trigger, or None if trigger required but missing."""
-    q = (text or "").strip()
-    if not trigger:
-        return q
-    t = trigger.strip()
-    # "trigger: question" / "trigger question" first (avoids leaving a leading ':')
-    m = re.match(
-        re.escape(t) + r"(?:\s*[:\-–—]\s*|\s+)(.*)$",
-        q,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    if m:
-        return (m.group(1) or "").strip()
-    if q.lower().startswith(t.lower()):
-        return q[len(t) :].lstrip(" :,-–—\t").strip()
-    return None
-
-
-def _chat_id_from_event(event: Any) -> int | None:
-    chat_id = getattr(event, "chat_id", None)
-    if isinstance(chat_id, int):
-        return chat_id
-    chat = getattr(event, "chat", None)
-    if chat is not None and hasattr(chat, "id"):
+def _sender_id(event: Any) -> int | None:
+    sid = getattr(event, "sender_id", None)
+    if isinstance(sid, int):
+        return sid
+    sender = getattr(event, "sender", None)
+    if sender is not None and hasattr(sender, "id"):
         try:
-            return int(chat.id)
+            return int(sender.id)
         except (TypeError, ValueError):
             return None
     return None
 
 
+def is_private_incoming_dm(event: Any) -> bool:
+    """True for an incoming private User chat (not groups/channels, not our own outs)."""
+    if getattr(event, "out", False):
+        return False
+    # Telethon: is_private on NewMessage.Event
+    is_private = getattr(event, "is_private", None)
+    if is_private is False:
+        return False
+    if is_private is True:
+        return True
+    # Fallback: positive chat_id usually means user DM (Telethon peer id)
+    chat_id = getattr(event, "chat_id", None)
+    return isinstance(chat_id, int) and chat_id > 0
+
+
+def is_allowed_sender(sender_id: int | None, allowed: frozenset[int]) -> bool:
+    return sender_id is not None and sender_id in allowed
+
+
 async def run_telethon_user() -> int:
     try:
         from telethon import TelegramClient, events
+        from telethon.tl.types import User
     except ImportError as exc:
         raise SystemExit(
             "telethon is not installed. run:\n"
@@ -116,46 +114,44 @@ async def run_telethon_user() -> int:
     settings = load_telethon_settings()
     memory = MemoryService()
     session = str(settings.session_path)
-    # Telethon appends .session itself if needed; pass path without forcing suffix twice
     if session.endswith(".session"):
         session_base = session[: -len(".session")]
     else:
         session_base = session
 
     client = TelegramClient(session_base, settings.api_id, settings.api_hash)
-    chats = list(settings.chat_ids)
 
-    @client.on(events.NewMessage(chats=chats if chats else None))
+    @client.on(events.NewMessage(incoming=True))
     async def on_new_message(event: Any) -> None:  # noqa: ANN401
-        if getattr(event, "out", False):
+        if not is_private_incoming_dm(event):
             return
+
+        # Extra guard: chat entity should be a User (1:1), not Chat/Channel.
+        try:
+            chat = await event.get_chat()
+        except Exception:
+            logger.exception("telethon get_chat failed")
+            return
+        if not isinstance(chat, User):
+            return
+
+        sender_id = _sender_id(event)
+        if not is_allowed_sender(sender_id, settings.allowed_user_ids):
+            logger.warning("telethon unauthorized dm sender_id=%s", sender_id)
+            try:
+                await event.reply("사용할 수 없는 계정입니다.")
+            except Exception:
+                logger.exception("telethon unauthorized reply failed")
+            return
+
         msg = event.message
         if msg is None:
             return
-        text = (getattr(msg, "message", None) or getattr(msg, "text", None) or "").strip()
-        if not text:
-            return
-
-        chat_id = _chat_id_from_event(event)
-        if chat_id is None or chat_id not in settings.chat_ids:
-            return
-
-        question = _strip_trigger(text, settings.trigger)
-        if question is None:
-            return
+        question = (getattr(msg, "message", None) or getattr(msg, "text", None) or "").strip()
         if not question:
-            await event.reply(
-                "Research Memory (user MVP)\n"
-                f"트리거 `{settings.trigger}` 뒤에 질문을 적어 주세요.\n"
-                "예: 이번달 일정 / kmx 프로젝트에 대해 알려줘"
-            )
             return
 
-        logger.info(
-            "telethon question chat_id=%s len=%s",
-            chat_id,
-            len(question),
-        )
+        logger.info("telethon dm sender_id=%s len=%s", sender_id, len(question))
         status = await event.reply("Memory에서 확인하는 중…")
         try:
             chunks = await asyncio.to_thread(answer_question_chunks, memory, question)
@@ -172,13 +168,11 @@ async def run_telethon_user() -> int:
             await event.reply(extra)
 
     logger.info(
-        "starting telethon user MVP session=%s chats=%s trigger=%r",
+        "starting telethon Assistant DM MVP session=%s allowed_users=%s",
         settings.session_path,
-        sorted(settings.chat_ids),
-        settings.trigger or "(all messages)",
+        sorted(settings.allowed_user_ids),
     )
     async with client:
-        # Interactive phone/code on first run; later uses session file.
         await client.start()
         me = await client.get_me()
         logger.info(
@@ -187,9 +181,8 @@ async def run_telethon_user() -> int:
             getattr(me, "username", None),
         )
         print(
-            "Telethon user MVP running. "
-            f"chats={sorted(settings.chat_ids)} "
-            f"trigger={settings.trigger or '(all)'} "
+            "Research Assistant (Telethon DM) running. "
+            f"allowed_users={sorted(settings.allowed_user_ids)} "
             "Ctrl+C to stop."
         )
         await client.run_until_disconnected()

@@ -65,11 +65,11 @@ cp telegram_memory/.env.example telegram_memory/.env   # 토큰·user_id·chat_i
 ./run_telegram.sh          # Bot API long polling
 ```
 
-**Telethon 유저 계정 MVP** (Bot과 별도, 기존 Bot API 유지): 일반 Telegram 계정으로 지정 채팅을 듣고 같은 Memory 로직으로 답합니다. 히스토리 수집·Memory 저장 없음.
+**Telethon Research Assistant MVP** (Bot과 별도): Assistant **전용 일반 계정**에 팀원이 1:1 DM → 같은 Memory 로직으로 답변. 그룹 감시·히스토리 수집·Memory 저장 없음.
 
 ```bash
-# .env 에 TELETHON_API_ID / TELETHON_API_HASH / TELETHON_CHAT_IDS (/ TELETHON_TRIGGER)
-./run_telegram.sh user     # 첫 실행 시 터미널에서 폰·로그인 코드 입력
+# .env: TELETHON_API_ID / TELETHON_API_HASH / TELETHON_ALLOWED_USER_IDS
+./run_telegram.sh user     # Assistant 계정으로 최초 폰·로그인 코드 입력
 ```
 
 웹 앱은 기존처럼 `./run_app.sh` 입니다. 봇과 같이 쓰려면 둘 다 띄우면 됩니다.

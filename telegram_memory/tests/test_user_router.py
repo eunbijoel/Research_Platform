@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from telethon_user import is_allowed_sender, is_private_incoming_dm
 from user_router import answer_question_chunks, normalize_question
 
 
@@ -43,10 +44,16 @@ def test_answer_routes_rag_ask() -> None:
     memory.ask.assert_called_once()
 
 
-def test_strip_trigger_helper() -> None:
-    from telethon_user import _strip_trigger
+def test_is_private_incoming_dm() -> None:
+    assert is_private_incoming_dm(SimpleNamespace(out=False, is_private=True)) is True
+    assert is_private_incoming_dm(SimpleNamespace(out=True, is_private=True)) is False
+    assert is_private_incoming_dm(SimpleNamespace(out=False, is_private=False)) is False
+    assert is_private_incoming_dm(SimpleNamespace(out=False, is_private=None, chat_id=12345)) is True
+    assert is_private_incoming_dm(SimpleNamespace(out=False, is_private=None, chat_id=-100123)) is False
 
-    assert _strip_trigger("/rm 이번달 일정", "/rm") == "이번달 일정"
-    assert _strip_trigger("/RM: 추석", "/rm") == "추석"
-    assert _strip_trigger("이번달 일정", "/rm") is None
-    assert _strip_trigger("이번달 일정", "") == "이번달 일정"
+
+def test_is_allowed_sender() -> None:
+    allowed = frozenset({111, 222})
+    assert is_allowed_sender(111, allowed) is True
+    assert is_allowed_sender(999, allowed) is False
+    assert is_allowed_sender(None, allowed) is False
