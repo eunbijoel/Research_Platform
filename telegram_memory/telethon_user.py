@@ -45,7 +45,7 @@ def load_telethon_settings() -> TelethonSettings:
     except ValueError as exc:
         raise SystemExit(f"invalid TELETHON_API_ID: {api_id_raw!r}") from exc
 
-    allowed = _parse_id_set("TELETHON_ALLOWED_USER_IDS", "TELETHON_ALLOWED_USER_ID")
+    allowed = _parse_id_set("TELETHON_ALLOWED_USER_IDS")
     if not allowed:
         raise SystemExit(
             "missing TELETHON_ALLOWED_USER_IDS\n"

@@ -1,10 +1,14 @@
-"""Telegram handlers for Research Memory Bot."""
+"""Telegram handlers for Research Memory Bot (Bot API).
+
+Auth, group addressing, and chat logging stay here. Question → answer chunks
+go through user_router (shared with Telethon Assistant DM).
+"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from telegram import Update
 from telegram.ext import (
@@ -16,20 +20,16 @@ from telegram.ext import (
 )
 
 from auth import TelegramAuth, auth_ok
-from format_reply import (
-    format_holidays,
-    format_latest,
-    format_meeting,
-    format_projects,
-    format_reply,
-    format_schedule,
-)
-from service import detect_inventory_intent, detect_schedule_intent, parse_mentioned_month
+from user_router import answer_question_chunks
 
 if TYPE_CHECKING:
     from app import AppContext
 
 logger = logging.getLogger("research-memory-bot")
+
+_REFUSAL_PREFIX = "메모리에 근거가 없어 답할 수 없습니다"
+_ERROR_TEXT = "Memory에 연결하지 못했습니다."
+
 
 def help_text(platform_url: str) -> str:
     """Start/help body. Platform URL first so web + bot stay discoverable together."""
@@ -113,163 +113,19 @@ class TelegramBotApp:
             )
 
     async def on_projects(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self._reply_inventory(update, "projects", "프로젝트 목록")
+        await self._reply_via_router(update, "/projects", "프로젝트 목록을 불러오는 중…")
 
     async def on_latest(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self._reply_inventory(update, "latest", "최근 활동 폴더")
+        await self._reply_via_router(update, "/latest", "최근 활동 폴더를 불러오는 중…")
 
     async def on_today(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self._reply_schedule(update, self.ctx.memory.list_today, "오늘 일정")
+        await self._reply_via_router(update, "/today", "오늘 일정을 불러오는 중…")
 
     async def on_week(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self._reply_schedule(update, self.ctx.memory.list_week, "이번 주 일정")
+        await self._reply_via_router(update, "/week", "이번 주 일정을 불러오는 중…")
 
     async def on_month(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self._reply_schedule(update, self.ctx.memory.list_month, "이번 달 일정")
-
-    async def _reply_inventory(
-        self,
-        update: Update,
-        kind: str,
-        waiting_label: str,
-    ) -> None:
-        if not await self._gate(update):
-            return
-        message = update.effective_message
-        if message is None:
-            return
-        status = await message.reply_text(f"{waiting_label}을 불러오는 중…")
-        try:
-            if kind == "latest":
-                payload = await asyncio.to_thread(self.ctx.memory.latest_folder)
-                chunks = format_latest(payload)
-            else:
-                payload = await asyncio.to_thread(self.ctx.memory.list_project_inventory)
-                chunks = format_projects(payload)
-        except Exception:
-            logger.exception("inventory list failed")
-            await status.edit_text("폴더 정보를 불러오지 못했습니다.")
-            return
-        await status.edit_text(chunks[0])
-        for extra in chunks[1:]:
-            await message.reply_text(extra)
-
-    async def _reply_schedule(
-        self,
-        update: Update,
-        loader: Callable[[], Any],
-        waiting_label: str,
-    ) -> None:
-        if not await self._gate(update):
-            return
-        message = update.effective_message
-        if message is None:
-            return
-        status = await message.reply_text(f"{waiting_label}을 불러오는 중…")
-        try:
-            query = await asyncio.to_thread(loader)
-        except Exception:
-            logger.exception("schedule list failed")
-            await status.edit_text("일정을 불러오지 못했습니다.")
-            return
-        chunks = format_schedule(query)
-        await status.edit_text(chunks[0])
-        for extra in chunks[1:]:
-            await message.reply_text(extra)
-
-    async def _reply_holidays(self, update: Update, question: str) -> None:
-        if not await self._gate(update):
-            return
-        message = update.effective_message
-        if message is None:
-            return
-        status = await message.reply_text("공휴일 정보를 확인하는 중…")
-        try:
-            query = await asyncio.to_thread(self.ctx.memory.lookup_holidays, question)
-        except Exception:
-            logger.exception("holiday lookup failed")
-            await status.edit_text("공휴일 정보를 불러오지 못했습니다.")
-            return
-        chunks = format_holidays(query)
-        await status.edit_text(chunks[0])
-        for extra in chunks[1:]:
-            await message.reply_text(extra)
-
-    async def _reply_last_meeting(self, update: Update) -> None:
-        if not await self._gate(update):
-            return
-        message = update.effective_message
-        if message is None:
-            return
-        status = await message.reply_text("최근 회의를 찾는 중…")
-        try:
-            ctx = await asyncio.to_thread(self.ctx.memory.latest_meeting)
-        except Exception:
-            logger.exception("latest meeting failed")
-            await status.edit_text("회의 일정을 불러오지 못했습니다.")
-            return
-        chunks = format_meeting(ctx)
-        await status.edit_text(chunks[0])
-        for extra in chunks[1:]:
-            await message.reply_text(extra)
-
-    async def _reply_meeting_notes(self, update: Update, question: str) -> None:
-        if not await self._gate(update):
-            return
-        message = update.effective_message
-        if message is None:
-            return
-        status = await message.reply_text("첨부 회의록에서 근거를 찾는 중…")
-        user_id = int(update.effective_user.id) if update.effective_user else 0
-        chat_id = int(update.effective_chat.id) if update.effective_chat else 0
-        try:
-            meeting = await asyncio.to_thread(self.ctx.memory.resolve_meeting, question)
-            result = await asyncio.to_thread(
-                self.ctx.memory.ask_meeting_notes, question, meeting
-            )
-        except Exception:
-            logger.exception("meeting notes ask failed")
-            await status.edit_text("회의록을 불러오지 못했습니다.")
-            self._log_turn(
-                user_id=user_id,
-                chat_id=chat_id,
-                question=question,
-                answer="회의록을 불러오지 못했습니다.",
-                refused=True,
-                mode="error",
-                citations=[],
-            )
-            return
-
-        header_chunks = format_meeting(meeting, heading="🗓️ 대상 회의")
-        answer_chunks = format_reply(result, repo=self.ctx.memory.repo)
-        # Lead with which meeting we used, then the RAG answer.
-        first = header_chunks[0]
-        if answer_chunks:
-            combined = f"{first}\n\n{answer_chunks[0]}"
-            out = [combined] + header_chunks[1:] + answer_chunks[1:]
-        else:
-            out = header_chunks
-        # Respect Telegram length by re-splitting if needed.
-        from format_reply import _split_telegram
-
-        chunks = _split_telegram(out[0]) + out[1:]
-        await status.edit_text(chunks[0])
-        for extra in chunks[1:]:
-            await message.reply_text(extra)
-        self._log_turn(
-            user_id=user_id,
-            chat_id=chat_id,
-            question=question,
-            answer=result.answer,
-            refused=bool(result.refused) or result.answer.startswith(
-                "메모리에 근거가 없어 답할 수 없습니다"
-            ),
-            mode=result.mode,
-            citations=[]
-            if result.answer.startswith("메모리에 근거가 없어 답할 수 없습니다")
-            else result.citations,
-        )
+        await self._reply_via_router(update, "/month", "이번 달 일정을 불러오는 중…")
 
     async def on_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._gate(update):
@@ -283,85 +139,66 @@ class TelegramBotApp:
         if not question:
             return
 
-        # Strip leading @botusername so intent/RAG see the real question.
         bot_username = (getattr(context.bot, "username", None) or "").strip()
         if bot_username and question.lower().startswith(f"@{bot_username.lower()}"):
             question = question[len(bot_username) + 1 :].strip()
         if not question:
             return
 
-        inv = detect_inventory_intent(question)
-        if inv == "projects":
-            await self._reply_inventory(update, "projects", "프로젝트 목록")
-            return
-        if inv == "latest":
-            await self._reply_inventory(update, "latest", "최근 활동 폴더")
-            return
+        await self._reply_via_router(
+            update, question, "Memory에서 확인하는 중…", gated=True
+        )
 
-        sched = detect_schedule_intent(question)
-        if sched == "today":
-            await self._reply_schedule(update, self.ctx.memory.list_today, "오늘 일정")
+    async def _reply_via_router(
+        self,
+        update: Update,
+        question: str,
+        waiting_label: str,
+        *,
+        gated: bool = False,
+    ) -> None:
+        if not gated and not await self._gate(update):
             return
-        if sched == "week":
-            await self._reply_schedule(update, self.ctx.memory.list_week, "이번 주 일정")
+        message = update.effective_message
+        if message is None:
             return
-        if sched == "month":
-            target = parse_mentioned_month(question)
-            if target is None:
-                await self._reply_schedule(
-                    update, self.ctx.memory.list_month, "이번 달 일정"
-                )
-            else:
-                await self._reply_schedule(
-                    update,
-                    lambda: self.ctx.memory.list_month(target),
-                    f"{target.month}월 일정",
-                )
-            return
-        if sched == "holiday":
-            await self._reply_holidays(update, question)
-            return
-        if sched == "last_meeting":
-            await self._reply_last_meeting(update)
-            return
-        if sched == "meeting_notes":
-            await self._reply_meeting_notes(update, question)
-            return
-
-        status = await message.reply_text("Memory에서 근거를 찾는 중…")
         user_id = int(update.effective_user.id) if update.effective_user else 0
         chat_id = int(update.effective_chat.id) if update.effective_chat else 0
+        status = await message.reply_text(waiting_label)
         try:
-            result = await asyncio.to_thread(self.ctx.memory.ask, question)
+            chunks = await asyncio.to_thread(
+                answer_question_chunks, self.ctx.memory, question
+            )
         except Exception:
-            logger.exception("memory ask failed")
-            await status.edit_text("Memory에 연결하지 못했습니다.")
+            logger.exception("router reply failed")
+            await status.edit_text(_ERROR_TEXT)
             self._log_turn(
                 user_id=user_id,
                 chat_id=chat_id,
                 question=question,
-                answer="Memory에 연결하지 못했습니다.",
+                answer=_ERROR_TEXT,
                 refused=True,
                 mode="error",
                 citations=[],
             )
             return
-        chunks = format_reply(result, repo=self.ctx.memory.repo)
+
+        if not chunks:
+            chunks = ["(빈 답변)"]
         await status.edit_text(chunks[0])
         for extra in chunks[1:]:
             await message.reply_text(extra)
+
+        joined = "\n".join(chunks)
+        refused = joined.startswith(_REFUSAL_PREFIX) or joined.startswith(_ERROR_TEXT)
         self._log_turn(
             user_id=user_id,
             chat_id=chat_id,
             question=question,
-            answer=result.answer,
-            refused=bool(result.refused) or result.answer.startswith(
-                "메모리에 근거가 없어 답할 수 없습니다"
-            ),
-            mode=result.mode,
-            citations=[]
-            if result.answer.startswith("메모리에 근거가 없어 답할 수 없습니다")
-            else result.citations,
+            answer=joined,
+            refused=refused,
+            mode="error" if joined.startswith(_ERROR_TEXT) else "router",
+            citations=[],
         )
 
     def _log_turn(
@@ -398,8 +235,6 @@ class TelegramBotApp:
             getattr(user, "id", None),
             getattr(chat, "id", None),
         )
-        if update.callback_query:
-            await update.callback_query.answer("권한이 없습니다.", show_alert=False)
-        elif update.effective_message:
+        if update.effective_message:
             await update.effective_message.reply_text("사용할 수 없는 계정입니다.")
         return False

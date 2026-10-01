@@ -43,7 +43,7 @@ fi
 
 if [[ ! -f .env ]]; then
   echo "missing ${ROOT}/telegram_memory/.env" >&2
-  echo "copy .env.example to .env and fill TELEGRAM_BOT_TOKEN / ALLOWED_USER_ID / ALLOWED_CHAT_ID" >&2
+  echo "copy .env.example to .env and fill TELEGRAM_BOT_TOKEN / TELEGRAM_ALLOWED_USER_IDS / TELEGRAM_ALLOWED_CHAT_IDS" >&2
   exit 1
 fi
 

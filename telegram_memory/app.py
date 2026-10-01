@@ -52,14 +52,13 @@ def _require(name: str, value: str | None) -> str:
         raise SystemExit(
             f"missing required environment variable: {name}\n"
             "copy .env.example to .env and fill TELEGRAM_BOT_TOKEN / "
-            "TELEGRAM_ALLOWED_USER_IDS / TELEGRAM_ALLOWED_CHAT_IDS "
-            "(or singular TELEGRAM_ALLOWED_USER_ID / TELEGRAM_ALLOWED_CHAT_ID)"
+            "TELEGRAM_ALLOWED_USER_IDS / TELEGRAM_ALLOWED_CHAT_IDS"
         )
     return str(value).strip()
 
 
 def _parse_id_set(*env_names: str) -> frozenset[int]:
-    """Parse comma-separated int IDs from the first non-empty env among names."""
+    """Parse comma-separated int IDs from the given env var names (all merged)."""
     values: set[int] = set()
     for name in env_names:
         raw = os.getenv(name, "")
@@ -89,16 +88,16 @@ def load_env_files() -> None:
 def load_settings() -> Settings:
     load_env_files()
     db_raw = os.getenv("TELEGRAM_CHAT_DB", "").strip()
-    user_ids = _parse_id_set("TELEGRAM_ALLOWED_USER_IDS", "TELEGRAM_ALLOWED_USER_ID")
-    chat_ids = _parse_id_set("TELEGRAM_ALLOWED_CHAT_IDS", "TELEGRAM_ALLOWED_CHAT_ID")
+    user_ids = _parse_id_set("TELEGRAM_ALLOWED_USER_IDS")
+    chat_ids = _parse_id_set("TELEGRAM_ALLOWED_CHAT_IDS")
     if not user_ids:
         raise SystemExit(
-            "missing TELEGRAM_ALLOWED_USER_IDS (or TELEGRAM_ALLOWED_USER_ID)\n"
+            "missing TELEGRAM_ALLOWED_USER_IDS\n"
             "copy .env.example to .env and set one or more numeric Telegram user ids"
         )
     if not chat_ids:
         raise SystemExit(
-            "missing TELEGRAM_ALLOWED_CHAT_IDS (or TELEGRAM_ALLOWED_CHAT_ID)\n"
+            "missing TELEGRAM_ALLOWED_CHAT_IDS\n"
             "copy .env.example to .env and set private chat id(s) and/or group id(s)"
         )
     platform_url = (os.getenv("PLATFORM_URL") or DEFAULT_PLATFORM_URL).strip()
@@ -150,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         ctx.settings.chat_db_path,
     )
     try:
-        application.run_polling(allowed_updates=["message", "callback_query"])
+        application.run_polling(allowed_updates=["message"])
     finally:
         ctx.close()
     return 0
