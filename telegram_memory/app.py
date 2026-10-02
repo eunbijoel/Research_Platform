@@ -123,7 +123,7 @@ def run_check() -> int:
     print(f"memory_engine={memory_engine_status()}")
     print(f"chat_db={DEFAULT_DB}")
     print("telegram_polling=not started (use python app.py after filling .env)")
-    print("telethon_user=python app.py user  (TELETHON_API_ID/HASH + TELETHON_ALLOWED_USER_IDS)")
+    print("telethon_user=python app.py user  (TELETHON_API_ID/HASH + TELETHON_CHAT_IDS)")
     return 0
 
 

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from telethon_user import is_allowed_sender, is_private_incoming_dm
+from telethon_user import is_watched_incoming
 from user_router import answer_question_chunks, normalize_question
 
 
@@ -44,16 +44,9 @@ def test_answer_routes_rag_ask() -> None:
     memory.ask.assert_called_once()
 
 
-def test_is_private_incoming_dm() -> None:
-    assert is_private_incoming_dm(SimpleNamespace(out=False, is_private=True)) is True
-    assert is_private_incoming_dm(SimpleNamespace(out=True, is_private=True)) is False
-    assert is_private_incoming_dm(SimpleNamespace(out=False, is_private=False)) is False
-    assert is_private_incoming_dm(SimpleNamespace(out=False, is_private=None, chat_id=12345)) is True
-    assert is_private_incoming_dm(SimpleNamespace(out=False, is_private=None, chat_id=-100123)) is False
-
-
-def test_is_allowed_sender() -> None:
-    allowed = frozenset({111, 222})
-    assert is_allowed_sender(111, allowed) is True
-    assert is_allowed_sender(999, allowed) is False
-    assert is_allowed_sender(None, allowed) is False
+def test_is_watched_incoming() -> None:
+    chats = frozenset({111, -100999})
+    assert is_watched_incoming(SimpleNamespace(out=False, chat_id=111), chats) is True
+    assert is_watched_incoming(SimpleNamespace(out=True, chat_id=111), chats) is False
+    assert is_watched_incoming(SimpleNamespace(out=False, chat_id=999), chats) is False
+    assert is_watched_incoming(SimpleNamespace(out=False, chat_id=-100999), chats) is True

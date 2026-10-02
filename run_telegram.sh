@@ -24,7 +24,7 @@ if [[ "${MODE}" == "user" ]]; then
   cd "${ROOT}/telegram_memory"
   if [[ ! -f .env ]]; then
     echo "missing ${ROOT}/telegram_memory/.env" >&2
-    echo "set TELETHON_API_ID / TELETHON_API_HASH / TELETHON_ALLOWED_USER_IDS" >&2
+    echo "set TELETHON_API_ID / TELETHON_API_HASH / TELETHON_CHAT_IDS" >&2
     exit 1
   fi
   exec "$PYTHON" app.py user
