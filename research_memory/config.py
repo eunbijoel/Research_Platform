@@ -17,6 +17,23 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _load_dotenv(path: Path) -> None:
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("'").strip('"')
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv(PROJECT_ROOT / ".env")
+
+
 DATA_DIR = PROJECT_ROOT / _env("RM_DATA_DIR", "data")
 RAW_DIR = DATA_DIR / "raw"
 KB_DIR = DATA_DIR / "kb"
@@ -35,6 +52,7 @@ LLM_TIMEOUT_SEC = int(_env("RM_LLM_TIMEOUT_SEC", "120"))
 EMBED_TIMEOUT_SEC = int(_env("RM_EMBED_TIMEOUT_SEC", "120"))
 EMBED_BATCH_SIZE = int(_env("RM_EMBED_BATCH_SIZE", "16"))
 MOCK_LLM = _env_bool("RM_MOCK_LLM", False)
+APP_PASSWORD = _env("RM_APP_PASSWORD", "")
 
 CHUNK_SIZE = 900
 CHUNK_OVERLAP = 120

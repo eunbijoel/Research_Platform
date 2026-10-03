@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import importlib
 import re
 import sys
@@ -16,6 +17,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from research_memory.config import (
+    APP_PASSWORD,
     EMBED_MODEL,
     INDEX_PATH,
     MODEL_NAME,
@@ -692,7 +694,39 @@ def _schedule_add_dialog(
     )
 
 
+def _password_matches(entered: str, expected: str) -> bool:
+    left = hashlib.sha256((entered or "").encode("utf-8")).digest()
+    right = hashlib.sha256((expected or "").encode("utf-8")).digest()
+    return hmac.compare_digest(left, right)
+
+
+def _render_login() -> None:
+    st.markdown("### Research Memory Platform")
+    st.caption("비밀번호를 입력하세요.")
+    if not APP_PASSWORD:
+        st.error("비밀번호가 설정되지 않았습니다. `.env`에 `RM_APP_PASSWORD`를 넣고 앱을 다시 실행하세요.")
+        return
+    with st.form("rm_login"):
+        entered = st.text_input("비밀번호", type="password")
+        submitted = st.form_submit_button("입장", type="primary")
+    if submitted:
+        if _password_matches(entered, APP_PASSWORD):
+            st.session_state.rm_authed = True
+            st.rerun()
+        st.error("비밀번호가 올바르지 않습니다.")
+
+
+def _require_app_login() -> bool:
+    if st.session_state.get("rm_authed"):
+        return True
+    _render_login()
+    return False
+
+
 def main() -> None:
+    if not _require_app_login():
+        return
+
     _inject_ui_css()
     if "page" not in st.session_state:
         st.session_state.page = PAGE_HOME
@@ -741,6 +775,9 @@ def main() -> None:
             set_active_model(MODEL_NAME)
         if MOCK_LLM:
             st.warning("RM_MOCK_LLM=true")
+        if st.button("잠금", use_container_width=True, key="sidebar_lock"):
+            st.session_state.rm_authed = False
+            st.rerun()
         with st.expander("고급", expanded=False):
             st.caption(f"검색 임베딩: `{EMBED_MODEL}`")
             if st.button("검색 인덱스 재구축", use_container_width=True, key="sidebar_rebuild_index"):
