@@ -53,6 +53,8 @@ python3.12 -m venv .venv312
 
 브라우저: [http://127.0.0.1:8505](http://127.0.0.1:8505)
 
+첫 화면에서 비밀번호를 묻습니다. `.env`에 `RM_APP_PASSWORD`를 넣은 뒤 `./run_app.sh`로 실행하세요 (`cp .env.example .env`).
+
 ### Research Memory Bot (Telegram)
 
 Streamlit과 **별도 프로세스**. 별도 Bot Token. Memory는 `answer_question()`으로만 읽고, 저장·수정은 하지 않습니다. 허용된 user/chat만 사용합니다 (`TELEGRAM_ALLOWED_USER_IDS` · `TELEGRAM_ALLOWED_CHAT_IDS`, 쉼표로 여러 명/그룹 가능. 그룹 chat id는 보통 `-100…`). `/today`·`/week`로 일정도 조회합니다 (읽기 전용). 그룹에서는 `@봇` 멘션 또는 봇 메시지에 답장해서 질문합니다.

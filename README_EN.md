@@ -101,6 +101,8 @@ python3.12 -m venv .venv312
 
 Open in browser: [http://127.0.0.1:8505](http://127.0.0.1:8505)
 
+The first screen asks for a password. Set `RM_APP_PASSWORD` in `.env`, then run `./run_app.sh` (`cp .env.example .env`).
+
 ### Research Memory Bot (Telegram)
 
 Separate process from Streamlit, with its own bot token. Reads Memory through `answer_question()` only (no writes). Allowlisted users/chats only (`TELEGRAM_ALLOWED_USER_IDS` · `TELEGRAM_ALLOWED_CHAT_IDS`, comma-separated; group chat ids look like `-100…`). `/today` and `/week` list schedule items (read-only). In groups, ask with `@bot` mention or by replying to the bot.
