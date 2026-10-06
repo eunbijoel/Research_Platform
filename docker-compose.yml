@@ -18,6 +18,8 @@ services:
     volumes:
       # Persist KB, uploads, indexes, coding_agent workspace
       - ./data:/app/data
+    env_file:
+      - .env
     environment:
       RM_DATA_DIR: data
       RM_OLLAMA_URL: http://host.docker.internal:11434/api/generate

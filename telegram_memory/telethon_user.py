@@ -25,6 +25,7 @@ class TelethonSettings:
     api_hash: str
     session_path: Path
     chat_ids: frozenset[int]
+    password: str | None  # Telegram 2FA cloud password (optional)
 
 
 def load_telethon_settings() -> TelethonSettings:
@@ -57,11 +58,14 @@ def load_telethon_settings() -> TelethonSettings:
         session_path = (ROOT / session_path).resolve()
     session_path.parent.mkdir(parents=True, exist_ok=True)
 
+    password = (os.getenv("TELETHON_PASSWORD") or "").strip() or None
+
     return TelethonSettings(
         api_id=api_id,
         api_hash=api_hash,
         session_path=session_path,
         chat_ids=chat_ids,
+        password=password,
     )
 
 
@@ -144,7 +148,7 @@ async def run_telethon_user() -> int:
         sorted(settings.chat_ids),
     )
     async with client:
-        await client.start()
+        await client.start(password=settings.password)
         me = await client.get_me()
         logger.info(
             "telethon logged in as id=%s username=%s",
