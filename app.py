@@ -843,17 +843,15 @@ def _home_page() -> None:
         st.caption("Organizational research dashboard")
 
     if empty:
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         c1.metric("Documents", 0)
         c2.metric("Projects", stats["project_count"])
-        c3.metric("Knowledge Chunks", 0)
         st.info("과제는 준비되어 있습니다. 아래에서 프로젝트를 열거나 자료를 업로드하세요.")
     else:
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         c1.metric("Documents", stats["doc_count"])
         c2.metric("Projects", stats["project_count"])
-        c3.metric("Chunks", stats["chunk_count"])
-        c4.metric("Last Updated", stats["last_indexed"])
+        c3.metric("Last Updated", stats["last_indexed"])
 
     st.markdown("### Upload")
     with st.expander("Upload Documents", expanded=focus_upload or empty):
