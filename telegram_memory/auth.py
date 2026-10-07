@@ -1,26 +1,27 @@
-"""Allowlist for Research Memory Bot. No Telegram SDK import."""
+"""Bot access helpers. Membership checks that need Bot API live in telegram_bot."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+
+# Telegram ChatMember.status values that grant Research Bot DM access.
+ALLOWED_MEMBER_STATUSES = frozenset({"creator", "administrator", "member"})
 
 
 @dataclass(frozen=True)
 class TelegramAuth:
-    """Allow when user_id ∈ allowed_user_ids AND chat_id ∈ allowed_chat_ids."""
+    """Roster groups whose members may use the bot via private DM."""
 
-    allowed_user_ids: frozenset[int]
-    allowed_chat_ids: frozenset[int]
+    member_chat_ids: frozenset[int]
 
 
-def auth_ok(update: Any, auth: TelegramAuth) -> bool:
-    user = getattr(update, "effective_user", None)
-    chat = getattr(update, "effective_chat", None)
-    if user is None or chat is None:
+def status_allows_access(status: str | None) -> bool:
+    """True only for active roster membership (fail-closed otherwise)."""
+    if not status:
         return False
-    user_id = getattr(user, "id", None)
-    chat_id = getattr(chat, "id", None)
-    if not isinstance(user_id, int) or not isinstance(chat_id, int):
-        return False
-    return user_id in auth.allowed_user_ids and chat_id in auth.allowed_chat_ids
+    return str(status).lower() in ALLOWED_MEMBER_STATUSES
+
+
+def is_private_chat(chat: object | None) -> bool:
+    chat_type = getattr(chat, "type", None)
+    return chat_type == "private"

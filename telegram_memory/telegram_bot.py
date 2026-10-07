@@ -1,7 +1,7 @@
 """Telegram handlers for Research Memory Bot (Bot API).
 
-Auth, group addressing, and chat logging stay here. Question → answer chunks
-go through user_router (shared with Telethon Assistant DM).
+Auth: team roster group membership via getChatMember; answers only in private DMs.
+Question → answer chunks go through user_router (shared with Telethon).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from telegram.ext import (
     filters,
 )
 
-from auth import TelegramAuth, auth_ok
+from auth import TelegramAuth, is_private_chat, status_allows_access
 from user_router import answer_question_chunks
 
 if TYPE_CHECKING:
@@ -37,51 +37,21 @@ def help_text(platform_url: str) -> str:
         f"Research Memory Platform\n{platform_url}\n\n"
         "- /start, /help : 안내\n"
         "- /projects : 프로젝트 폴더 목록·개수\n"
-        "- /latest : 최근 활동 폴더 \n"
-        "- /today - /week - /month : 일정 \n"
+        "- /latest : 최근 활동 폴더\n"
+        "- /today · /week · /month : 일정\n"
         "- 일반 채팅 : Memory 문서에서 검색해 답합니다. 근거가 없으면 거절합니다.\n"
         "  (프로젝트·일정·공휴일·마지막 회의·첨부 회의록 질문은 자동으로 구조화 조회)\n"
-        "- 그룹에서는 @봇이름 으로 부르거나, 봇 메시지에 답장해서 질문하세요.\n"
+        "- 사용: 팀 Telegram 방 멤버만 **봇과의 개인 DM**에서 질문합니다.\n"
+        "  (팀 방은 자격 명단용이며, 방 안에서는 답하지 않습니다)\n"
         "- 저장·수정은 하지 않습니다 (읽기 전용)."
     )
-
-
-def _chat_is_group(chat: Any) -> bool:
-    return getattr(chat, "type", None) in {"group", "supergroup"}
-
-
-def _addressed_to_bot(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """In groups, only handle @mentions or replies to the bot (cut noise)."""
-    chat = update.effective_chat
-    message = update.effective_message
-    if chat is None or message is None:
-        return False
-    if not _chat_is_group(chat):
-        return True
-    reply = message.reply_to_message
-    bot_id = getattr(getattr(context, "bot", None), "id", None)
-    if reply is not None and getattr(reply, "from_user", None) is not None:
-        if bot_id is not None and reply.from_user.id == bot_id:
-            return True
-    bot_username = (getattr(context.bot, "username", None) or "").lower()
-    text = message.text or ""
-    for ent in message.entities or []:
-        if ent.type == "mention" and bot_username:
-            mention = text[ent.offset : ent.offset + ent.length].lstrip("@").lower()
-            if mention == bot_username:
-                return True
-        if ent.type == "text_mention" and getattr(ent, "user", None) is not None:
-            if bot_id is not None and ent.user.id == bot_id:
-                return True
-    return False
 
 
 class TelegramBotApp:
     def __init__(self, ctx: AppContext) -> None:
         self.ctx = ctx
         self.auth = TelegramAuth(
-            allowed_user_ids=ctx.settings.telegram_allowed_user_ids,
-            allowed_chat_ids=ctx.settings.telegram_allowed_chat_ids,
+            member_chat_ids=ctx.settings.telegram_allowed_member_chat_ids,
         )
 
     def build(self) -> Application:
@@ -97,7 +67,7 @@ class TelegramBotApp:
         return app
 
     async def on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not await self._gate(update):
+        if not await self._gate(update, context):
             return
         if update.effective_message:
             await update.effective_message.reply_text(
@@ -105,7 +75,7 @@ class TelegramBotApp:
             )
 
     async def on_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not await self._gate(update):
+        if not await self._gate(update, context):
             return
         if update.effective_message:
             await update.effective_message.reply_text(
@@ -113,24 +83,30 @@ class TelegramBotApp:
             )
 
     async def on_projects(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self._reply_via_router(update, "/projects", "프로젝트 목록을 불러오는 중…")
+        await self._reply_via_router(
+            update, context, "/projects", "프로젝트 목록을 불러오는 중…"
+        )
 
     async def on_latest(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self._reply_via_router(update, "/latest", "최근 활동 폴더를 불러오는 중…")
+        await self._reply_via_router(
+            update, context, "/latest", "최근 활동 폴더를 불러오는 중…"
+        )
 
     async def on_today(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self._reply_via_router(update, "/today", "오늘 일정을 불러오는 중…")
+        await self._reply_via_router(update, context, "/today", "오늘 일정을 불러오는 중…")
 
     async def on_week(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self._reply_via_router(update, "/week", "이번 주 일정을 불러오는 중…")
+        await self._reply_via_router(
+            update, context, "/week", "이번 주 일정을 불러오는 중…"
+        )
 
     async def on_month(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self._reply_via_router(update, "/month", "이번 달 일정을 불러오는 중…")
+        await self._reply_via_router(
+            update, context, "/month", "이번 달 일정을 불러오는 중…"
+        )
 
     async def on_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not await self._gate(update):
-            return
-        if not _addressed_to_bot(update, context):
+        if not await self._gate(update, context):
             return
         message = update.effective_message
         if message is None:
@@ -146,18 +122,19 @@ class TelegramBotApp:
             return
 
         await self._reply_via_router(
-            update, question, "Memory에서 확인하는 중…", gated=True
+            update, context, question, "Memory에서 확인하는 중…", gated=True
         )
 
     async def _reply_via_router(
         self,
         update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
         question: str,
         waiting_label: str,
         *,
         gated: bool = False,
     ) -> None:
-        if not gated and not await self._gate(update):
+        if not gated and not await self._gate(update, context):
             return
         message = update.effective_message
         if message is None:
@@ -225,15 +202,50 @@ class TelegramBotApp:
         except Exception:
             logger.exception("chat log write failed")
 
-    async def _gate(self, update: Update) -> bool:
-        if auth_ok(update, self.auth):
-            return True
+    async def _user_in_roster(self, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
+        """True if user is an active member of any roster chat (OR). Fail-closed."""
+        for chat_id in self.auth.member_chat_ids:
+            try:
+                member = await context.bot.get_chat_member(chat_id, user_id)
+            except Exception:
+                logger.warning(
+                    "get_chat_member failed chat_id=%s user_id=%s",
+                    chat_id,
+                    user_id,
+                    exc_info=True,
+                )
+                continue
+            status = getattr(member, "status", None)
+            if status_allows_access(status):
+                return True
+        return False
+
+    async def _gate(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         user = update.effective_user
         chat = update.effective_chat
+        if user is None or chat is None:
+            return False
+
+        # Roster groups are membership lists only — never answer there.
+        if not is_private_chat(chat):
+            logger.info(
+                "ignore non-private telegram chat_id=%s type=%s",
+                getattr(chat, "id", None),
+                getattr(chat, "type", None),
+            )
+            return False
+
+        user_id = getattr(user, "id", None)
+        if not isinstance(user_id, int):
+            return False
+
+        if await self._user_in_roster(context, user_id):
+            return True
+
         logger.warning(
-            "unauthorized telegram request user_id=%s chat_id=%s",
-            getattr(user, "id", None),
-            getattr(chat, "id", None),
+            "unauthorized telegram dm user_id=%s roster=%s",
+            user_id,
+            sorted(self.auth.member_chat_ids),
         )
         if update.effective_message:
             await update.effective_message.reply_text("사용할 수 없는 계정입니다.")

@@ -105,7 +105,7 @@ The first screen asks for a password. Set `RM_APP_PASSWORD` in `.env`, then run 
 
 ### Research Memory Bot (Telegram)
 
-Separate process from Streamlit, with its own bot token. Reads Memory through `answer_question()` only (no writes). Allowlisted users/chats only (`TELEGRAM_ALLOWED_USER_IDS` · `TELEGRAM_ALLOWED_CHAT_IDS`, comma-separated; group chat ids look like `-100…`). `/today` and `/week` list schedule items (read-only). In groups, ask with `@bot` mention or by replying to the bot.
+Separate process from Streamlit, with its own bot token. Reads Memory through `answer_question()` only (no writes). Members of the team roster group(s) in `TELEGRAM_ALLOWED_MEMBER_CHAT_IDS` may use the bot via **private DM only** (the group is a membership list; the bot does not answer in the group). `/today` and `/week` list schedule items (read-only).
 
 ```bash
 cd /mnt/data/eunbi/research-memory

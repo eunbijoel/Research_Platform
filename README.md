@@ -57,7 +57,7 @@ python3.12 -m venv .venv312
 
 ### Research Memory Bot (Telegram)
 
-Streamlit과 **별도 프로세스**. 별도 Bot Token. Memory는 `answer_question()`으로만 읽고, 저장·수정은 하지 않습니다. 허용된 user/chat만 사용합니다 (`TELEGRAM_ALLOWED_USER_IDS` · `TELEGRAM_ALLOWED_CHAT_IDS`, 쉼표로 여러 명/그룹 가능. 그룹 chat id는 보통 `-100…`). `/today`·`/week`로 일정도 조회합니다 (읽기 전용). 그룹에서는 `@봇` 멘션 또는 봇 메시지에 답장해서 질문합니다.
+Streamlit과 **별도 프로세스**. 별도 Bot Token. Memory는 `answer_question()`으로만 읽고, 저장·수정은 하지 않습니다. **팀 Telegram 방**(`TELEGRAM_ALLOWED_MEMBER_CHAT_IDS`) 멤버만 **봇과의 개인 DM**에서 사용합니다(방은 자격 명단, 방 안에서는 답하지 않음). `/today`·`/week`·자연어로 일정·회의·문서 질의(읽기 전용).
 
 ```bash
 cd /mnt/data/eunbi/research-memory

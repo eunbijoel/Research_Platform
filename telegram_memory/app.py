@@ -29,8 +29,7 @@ DEFAULT_PLATFORM_URL = "http://bigsoft.iptime.org:51100/"
 @dataclass(frozen=True)
 class Settings:
     telegram_bot_token: str
-    telegram_allowed_user_ids: frozenset[int]
-    telegram_allowed_chat_ids: frozenset[int]
+    telegram_allowed_member_chat_ids: frozenset[int]
     chat_db_path: Path
     platform_url: str
 
@@ -52,7 +51,7 @@ def _require(name: str, value: str | None) -> str:
         raise SystemExit(
             f"missing required environment variable: {name}\n"
             "copy .env.example to .env and fill TELEGRAM_BOT_TOKEN / "
-            "TELEGRAM_ALLOWED_USER_IDS / TELEGRAM_ALLOWED_CHAT_IDS"
+            "TELEGRAM_ALLOWED_MEMBER_CHAT_IDS"
         )
     return str(value).strip()
 
@@ -88,25 +87,18 @@ def load_env_files() -> None:
 def load_settings() -> Settings:
     load_env_files()
     db_raw = os.getenv("TELEGRAM_CHAT_DB", "").strip()
-    user_ids = _parse_id_set("TELEGRAM_ALLOWED_USER_IDS")
-    chat_ids = _parse_id_set("TELEGRAM_ALLOWED_CHAT_IDS")
-    if not user_ids:
+    member_chat_ids = _parse_id_set("TELEGRAM_ALLOWED_MEMBER_CHAT_IDS")
+    if not member_chat_ids:
         raise SystemExit(
-            "missing TELEGRAM_ALLOWED_USER_IDS\n"
-            "copy .env.example to .env and set one or more numeric Telegram user ids"
-        )
-    if not chat_ids:
-        raise SystemExit(
-            "missing TELEGRAM_ALLOWED_CHAT_IDS\n"
-            "copy .env.example to .env and set private chat id(s) and/or group id(s)"
+            "missing TELEGRAM_ALLOWED_MEMBER_CHAT_IDS\n"
+            "set one or more team group chat ids (-100…) used as the membership roster"
         )
     platform_url = (os.getenv("PLATFORM_URL") or DEFAULT_PLATFORM_URL).strip()
     if not platform_url:
         platform_url = DEFAULT_PLATFORM_URL
     return Settings(
         telegram_bot_token=_require("TELEGRAM_BOT_TOKEN", os.getenv("TELEGRAM_BOT_TOKEN")),
-        telegram_allowed_user_ids=user_ids,
-        telegram_allowed_chat_ids=chat_ids,
+        telegram_allowed_member_chat_ids=member_chat_ids,
         chat_db_path=Path(db_raw) if db_raw else DEFAULT_DB,
         platform_url=platform_url.rstrip("/") + "/",
     )
@@ -143,9 +135,8 @@ def main(argv: list[str] | None = None) -> int:
     bot = TelegramBotApp(ctx)
     application = bot.build()
     logger.info(
-        "starting telegram long polling allowed_users=%s allowed_chats=%s chat_db=%s",
-        sorted(ctx.settings.telegram_allowed_user_ids),
-        sorted(ctx.settings.telegram_allowed_chat_ids),
+        "starting telegram long polling member_chats=%s chat_db=%s",
+        sorted(ctx.settings.telegram_allowed_member_chat_ids),
         ctx.settings.chat_db_path,
     )
     try:
