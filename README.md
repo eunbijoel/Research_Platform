@@ -62,19 +62,19 @@ Streamlit과 **별도 프로세스**. 별도 Bot Token. Memory는 `answer_questi
 ```bash
 cd /mnt/data/eunbi/research-memory
 .venv312/bin/pip install -r telegram_memory/requirements.txt
-cp telegram_memory/.env.example telegram_memory/.env   # 토큰·user_id·chat_id
+cp telegram_memory/.env.example telegram_memory/.env   # TOKEN + MEMBER_CHAT_IDS
 ./run_telegram.sh check    # 토큰 없이 연결 확인
-./run_telegram.sh          # Bot API long polling
+./run_telegram.sh          # Bot API long polling (개인 DM)
 ```
 
-**Telethon/MTProto MVP** (Bot과 별도): 일반 Telegram 계정으로 로그인 후 `TELETHON_CHAT_IDS`에 등록한 채팅에서만 Memory로 답변. 히스토리 수집·Memory 저장 없음. `.env` / `*.session`은 gitignore.
+**Telethon/MTProto MVP** (Bot과 별도·선택): 일반 계정 로그인 후 `TELETHON_CHAT_IDS` 채팅만 응답. 히스토리 수집·Memory 저장 없음. `.env` / `*.session`은 gitignore.
 
 ```bash
 # .env: TELETHON_API_ID / TELETHON_API_HASH / TELETHON_CHAT_IDS
-./run_telegram.sh user     # 첫 실행 시 터미널에서 폰·로그인 코드 입력
+./run_telegram.sh user
 ```
 
-웹 앱은 기존처럼 `./run_app.sh` 입니다. 봇과 같이 쓰려면 둘 다 띄우면 됩니다.
+웹 앱은 `./run_app.sh`. 봇과 같이 쓰려면 둘 다 띄우면 됩니다.
 
 ### 데이터 저장
 
@@ -85,7 +85,7 @@ cp telegram_memory/.env.example telegram_memory/.env   # 토큰·user_id·chat_i
 | `data/kb/memory.sqlite3`            | 문서·프로젝트·일정·인덱스 메타데이터                  |
 | `data/kb/*.pkl`                     | 검색 인덱스 (TF-IDF, vector)               |
 | `data/coding_agent/`                | 코딩 에이전트 스레드·체크포인트·워크스페이스              |
-| `telegram_memory/data/chat.sqlite3` | 텔레그램 질문·답·출처 로그 (봇 전용, Memory KB와 분리) |
+| `telegram_memory/data/chat.sqlite3` | 텔레그램 질문·답 로그 (봇 전용, Memory KB와 분리) |
 
 
 ---

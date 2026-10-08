@@ -110,10 +110,12 @@ Separate process from Streamlit, with its own bot token. Reads Memory through `a
 ```bash
 cd /mnt/data/eunbi/research-memory
 .venv312/bin/pip install -r telegram_memory/requirements.txt
-cp telegram_memory/.env.example telegram_memory/.env   # token, user_id, chat_id
+cp telegram_memory/.env.example telegram_memory/.env   # TOKEN + MEMBER_CHAT_IDS
 ./run_telegram.sh check    # no token required
-./run_telegram.sh          # start long polling
+./run_telegram.sh          # Bot API long polling (private DM)
 ```
+
+Optional **Telethon/MTProto MVP** (separate process): log in as a user account and answer only in `TELETHON_CHAT_IDS`. No history scrape / Memory writes. Run `./run_telegram.sh user`.
 
 The web app is still `./run_app.sh`. Run both if you want Telegram and the browser at the same time.
 
@@ -125,7 +127,7 @@ The web app is still `./run_app.sh`. Run both if you want Telegram and the brows
 | `data/kb/memory.sqlite3` | All metadata — documents, projects, schedule items, indexes |
 | `data/kb/*.pkl` | Search indexes (TF-IDF, vector) |
 | `data/coding_agent/` | Coding agent threads, checkpoints, and workspace |
-| `telegram_memory/data/chat.sqlite3` | Telegram Q&A + citation log (bot-local; not the Memory KB) |
+| `telegram_memory/data/chat.sqlite3` | Telegram Q&A log (bot-local; not the Memory KB) |
 
 ---
 

@@ -57,7 +57,7 @@ def _require(name: str, value: str | None) -> str:
 
 
 def _parse_id_set(*env_names: str) -> frozenset[int]:
-    """Parse comma-separated int IDs from the given env var names (all merged)."""
+    """Parse comma-separated int IDs from each listed env var (union)."""
     values: set[int] = set()
     for name in env_names:
         raw = os.getenv(name, "")

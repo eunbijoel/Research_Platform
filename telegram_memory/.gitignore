@@ -2,3 +2,6 @@
 data/
 *.session
 *.session-journal
+.pytest_cache/
+__pycache__/
+*.pyc
