@@ -105,12 +105,13 @@ The first screen asks for a password. Set `RM_APP_PASSWORD` in `.env`, then run 
 
 ### Research Memory Bot (Telegram)
 
-Separate process from Streamlit, with its own bot token. Reads Memory through `answer_question()` only (no writes). Members of the team roster group(s) in `TELEGRAM_ALLOWED_MEMBER_CHAT_IDS` may use the bot via **private DM only** (the group is a membership list; the bot does not answer in the group). `/today` and `/week` list schedule items (read-only).
+Separate process from Streamlit, with its own bot token. Reads Memory through `answer_question()` only (no writes). Only Telegram User IDs registered under **Advanced → Telegram user admin** may use the bot via **private DM** (no replies in groups). That admin page is gated by `RM_TELEGRAM_ADMIN_PASSWORD` (separate from `RM_APP_PASSWORD`). `/today` and `/week` list schedule items (read-only).
 
 ```bash
 cd /mnt/data/eunbi/research-memory
+# Root .env: RM_TELEGRAM_ADMIN_PASSWORD=…  (web admin only)
 .venv312/bin/pip install -r telegram_memory/requirements.txt
-cp telegram_memory/.env.example telegram_memory/.env   # TOKEN + MEMBER_CHAT_IDS
+cp telegram_memory/.env.example telegram_memory/.env   # TELEGRAM_BOT_TOKEN only
 ./run_telegram.sh check    # no token required
 ./run_telegram.sh          # Bot API long polling (private DM)
 ```
@@ -127,7 +128,7 @@ The web app is still `./run_app.sh`. Run both if you want Telegram and the brows
 | `data/kb/memory.sqlite3` | All metadata — documents, projects, schedule items, indexes |
 | `data/kb/*.pkl` | Search indexes (TF-IDF, vector) |
 | `data/coding_agent/` | Coding agent threads, checkpoints, and workspace |
-| `telegram_memory/data/chat.sqlite3` | Telegram Q&A log (bot-local; not the Memory KB) |
+| `telegram_memory/data/chat.sqlite3` | Telegram Q&A log + allowed User IDs (bot-local; not the Memory KB) |
 
 ---
 

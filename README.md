@@ -57,12 +57,13 @@ python3.12 -m venv .venv312
 
 ### Research Memory Bot (Telegram)
 
-Streamlit과 **별도 프로세스**. 별도 Bot Token. Memory는 `answer_question()`으로만 읽고, 저장·수정은 하지 않습니다. **팀 Telegram 방**(`TELEGRAM_ALLOWED_MEMBER_CHAT_IDS`) 멤버만 **봇과의 개인 DM**에서 사용합니다(방은 자격 명단, 방 안에서는 답하지 않음). `/today`·`/week`·자연어로 일정·회의·문서 질의(읽기 전용).
+Streamlit과 **별도 프로세스**. 별도 Bot Token. Memory는 `answer_question()`으로만 읽고, 저장·수정은 하지 않습니다. **웹 → 고급 → Telegram 사용자 관리**에서 등록한 User ID만 **봇과의 개인 DM**에서 사용합니다(그룹 채팅에는 응답하지 않음). 관리자 화면은 `RM_TELEGRAM_ADMIN_PASSWORD`(일반 `RM_APP_PASSWORD`와 별도)로 보호됩니다. `/today`·`/week`·자연어로 일정·회의·문서 질의(읽기 전용).
 
 ```bash
 cd /mnt/data/eunbi/research-memory
+# 루트 .env: RM_TELEGRAM_ADMIN_PASSWORD=…  (웹 관리자용)
 .venv312/bin/pip install -r telegram_memory/requirements.txt
-cp telegram_memory/.env.example telegram_memory/.env   # TOKEN + MEMBER_CHAT_IDS
+cp telegram_memory/.env.example telegram_memory/.env   # TELEGRAM_BOT_TOKEN만
 ./run_telegram.sh check    # 토큰 없이 연결 확인
 ./run_telegram.sh          # Bot API long polling (개인 DM)
 ```
@@ -85,7 +86,7 @@ cp telegram_memory/.env.example telegram_memory/.env   # TOKEN + MEMBER_CHAT_IDS
 | `data/kb/memory.sqlite3`            | 문서·프로젝트·일정·인덱스 메타데이터                  |
 | `data/kb/*.pkl`                     | 검색 인덱스 (TF-IDF, vector)               |
 | `data/coding_agent/`                | 코딩 에이전트 스레드·체크포인트·워크스페이스              |
-| `telegram_memory/data/chat.sqlite3` | 텔레그램 질문·답 로그 (봇 전용, Memory KB와 분리) |
+| `telegram_memory/data/chat.sqlite3` | 텔레그램 질문·답 로그 + 허용 User ID (봇 전용, Memory KB와 분리) |
 
 
 ---

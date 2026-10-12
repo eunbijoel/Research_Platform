@@ -1,6 +1,6 @@
 """Telegram handlers for Research Memory Bot (Bot API).
 
-Auth: team roster group membership via getChatMember; answers only in private DMs.
+Auth: SQLite allowlist (managed in Streamlit admin); answers only in private DMs.
 Question → answer chunks go through user_router (shared with Telethon).
 """
 
@@ -19,7 +19,7 @@ from telegram.ext import (
     filters,
 )
 
-from auth import TelegramAuth, is_private_chat, status_allows_access
+from auth import is_private_chat
 from user_router import answer_question_chunks
 
 if TYPE_CHECKING:
@@ -41,8 +41,8 @@ def help_text(platform_url: str) -> str:
         "- /today · /week · /month : 일정\n"
         "- 일반 채팅 : Memory 문서에서 검색해 답합니다. 근거가 없으면 거절합니다.\n"
         "  (프로젝트·일정·공휴일·마지막 회의·첨부 회의록 질문은 자동으로 구조화 조회)\n"
-        "- 사용: 팀 Telegram 방 멤버만 **봇과의 개인 DM**에서 질문합니다.\n"
-        "  (팀 방은 자격 명단용이며, 방 안에서는 답하지 않습니다)\n"
+        "- 사용: 웹 관리자에 등록된 사용자만 **봇과의 개인 DM**에서 질문합니다.\n"
+        "  (그룹 채팅에서는 답하지 않습니다)\n"
         "- 저장·수정은 하지 않습니다 (읽기 전용)."
     )
 
@@ -50,9 +50,6 @@ def help_text(platform_url: str) -> str:
 class TelegramBotApp:
     def __init__(self, ctx: AppContext) -> None:
         self.ctx = ctx
-        self.auth = TelegramAuth(
-            member_chat_ids=ctx.settings.telegram_allowed_member_chat_ids,
-        )
 
     def build(self) -> Application:
         app = Application.builder().token(self.ctx.settings.telegram_bot_token).build()
@@ -202,31 +199,13 @@ class TelegramBotApp:
         except Exception:
             logger.exception("chat log write failed")
 
-    async def _user_in_roster(self, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
-        """True if user is an active member of any roster chat (OR). Fail-closed."""
-        for chat_id in self.auth.member_chat_ids:
-            try:
-                member = await context.bot.get_chat_member(chat_id, user_id)
-            except Exception:
-                logger.warning(
-                    "get_chat_member failed chat_id=%s user_id=%s",
-                    chat_id,
-                    user_id,
-                    exc_info=True,
-                )
-                continue
-            status = getattr(member, "status", None)
-            if status_allows_access(status):
-                return True
-        return False
-
     async def _gate(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+        del context  # reserved for future Bot API needs
         user = update.effective_user
         chat = update.effective_chat
         if user is None or chat is None:
             return False
 
-        # Roster groups are membership lists only — never answer there.
         if not is_private_chat(chat):
             logger.info(
                 "ignore non-private telegram chat_id=%s type=%s",
@@ -239,14 +218,16 @@ class TelegramBotApp:
         if not isinstance(user_id, int):
             return False
 
-        if await self._user_in_roster(context, user_id):
+        try:
+            allowed = await asyncio.to_thread(self.ctx.store.is_allowed_user, user_id)
+        except Exception:
+            logger.exception("allowed-user lookup failed user_id=%s", user_id)
+            allowed = False
+
+        if allowed:
             return True
 
-        logger.warning(
-            "unauthorized telegram dm user_id=%s roster=%s",
-            user_id,
-            sorted(self.auth.member_chat_ids),
-        )
+        logger.warning("unauthorized telegram dm user_id=%s", user_id)
         if update.effective_message:
             await update.effective_message.reply_text("사용할 수 없는 계정입니다.")
         return False

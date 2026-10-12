@@ -50,6 +50,13 @@ class ChatTurn:
     citations: list[dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class AllowedTelegramUser:
+    telegram_user_id: int
+    display_name: str
+    created_at: str
+
+
 class ChatLogStore:
     def __init__(self, db_path: Path | None = None) -> None:
         self.db_path = Path(db_path or DEFAULT_DB)
@@ -75,6 +82,15 @@ class ChatLogStore:
                     refused INTEGER NOT NULL DEFAULT 0,
                     mode TEXT NOT NULL,
                     citations_json TEXT NOT NULL DEFAULT '[]'
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS allowed_telegram_users (
+                    telegram_user_id INTEGER PRIMARY KEY,
+                    display_name TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
                 )
                 """
             )
@@ -125,6 +141,56 @@ class ChatLogStore:
                 (limit,),
             ).fetchall()
         return [self._row_to_turn(row) for row in rows]
+
+    def is_allowed_user(self, telegram_user_id: int) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM allowed_telegram_users WHERE telegram_user_id = ? LIMIT 1",
+                (int(telegram_user_id),),
+            ).fetchone()
+        return row is not None
+
+    def list_allowed_users(self) -> list[AllowedTelegramUser]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT telegram_user_id, display_name, created_at
+                FROM allowed_telegram_users
+                ORDER BY created_at ASC, telegram_user_id ASC
+                """
+            ).fetchall()
+        return [
+            AllowedTelegramUser(
+                telegram_user_id=int(row["telegram_user_id"]),
+                display_name=str(row["display_name"] or ""),
+                created_at=str(row["created_at"]),
+            )
+            for row in rows
+        ]
+
+    def add_allowed_user(self, telegram_user_id: int, display_name: str = "") -> None:
+        uid = int(telegram_user_id)
+        name = (display_name or "").strip()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO allowed_telegram_users (telegram_user_id, display_name, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(telegram_user_id) DO UPDATE SET
+                    display_name = excluded.display_name
+                """,
+                (uid, name, _utc_now()),
+            )
+            conn.commit()
+
+    def remove_allowed_user(self, telegram_user_id: int) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM allowed_telegram_users WHERE telegram_user_id = ?",
+                (int(telegram_user_id),),
+            )
+            conn.commit()
+            return cur.rowcount > 0
 
     def close(self) -> None:
         return None

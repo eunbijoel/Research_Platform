@@ -72,3 +72,19 @@ def test_refused_turn_has_empty_citations(tmp_path: Path) -> None:
     turn = store.latest(1)[0]
     assert turn.refused is True
     assert turn.citations == []
+
+
+def test_allowed_users_crud(tmp_path: Path) -> None:
+    store = ChatLogStore(tmp_path / "chat.sqlite3")
+    assert store.is_allowed_user(100) is False
+    store.add_allowed_user(100, "Alice")
+    assert store.is_allowed_user(100) is True
+    users = store.list_allowed_users()
+    assert len(users) == 1
+    assert users[0].telegram_user_id == 100
+    assert users[0].display_name == "Alice"
+    store.add_allowed_user(100, "Alice Updated")
+    assert store.list_allowed_users()[0].display_name == "Alice Updated"
+    assert store.remove_allowed_user(100) is True
+    assert store.is_allowed_user(100) is False
+    assert store.remove_allowed_user(100) is False

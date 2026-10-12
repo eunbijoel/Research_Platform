@@ -22,6 +22,8 @@ from research_memory.config import (
     INDEX_PATH,
     MODEL_NAME,
     MOCK_LLM,
+    TELEGRAM_ADMIN_PASSWORD,
+    TELEGRAM_CHAT_DB,
     VECTOR_INDEX_PATH,
     ensure_data_dirs,
 )
@@ -123,6 +125,7 @@ PAGE_SIMILARITY = "Similarity Intelligence"
 PAGE_SCHEDULE = "Project Schedule"
 PAGE_RESEARCH_NOTE = "Research Note"
 PAGE_CODING_AGENT = "Coding Agent"
+PAGE_TELEGRAM_USERS = "Telegram Users"
 
 MAIN_NAV = [
     (PAGE_HOME, "🏠 홈"),
@@ -723,6 +726,84 @@ def _require_app_login() -> bool:
     return False
 
 
+def _telegram_user_store():
+    """Bot chat DB (same file as telegram_memory ChatLogStore)."""
+    tg_root = ROOT / "telegram_memory"
+    if str(tg_root) not in sys.path:
+        sys.path.insert(0, str(tg_root))
+    from storage import ChatLogStore  # noqa: WPS433
+
+    return ChatLogStore(TELEGRAM_CHAT_DB)
+
+
+def _require_telegram_admin() -> bool:
+    """Separate gate from RM_APP_PASSWORD — Telegram user admin only."""
+    if st.session_state.get("rm_tg_admin_authed"):
+        return True
+    st.markdown("### Telegram 사용자 관리")
+    st.caption("일반 웹 비밀번호와 다른 관리자 비밀번호가 필요합니다.")
+    if not TELEGRAM_ADMIN_PASSWORD:
+        st.error(
+            "관리자 비밀번호가 없습니다. 루트 `.env`에 "
+            "`RM_TELEGRAM_ADMIN_PASSWORD`를 넣고 앱을 다시 실행하세요."
+        )
+        return False
+    with st.form("rm_tg_admin_login"):
+        entered = st.text_input("관리자 비밀번호", type="password")
+        submitted = st.form_submit_button("관리자 입장", type="primary")
+    if submitted:
+        if _password_matches(entered, TELEGRAM_ADMIN_PASSWORD):
+            st.session_state.rm_tg_admin_authed = True
+            st.rerun()
+        st.error("관리자 비밀번호가 올바르지 않습니다.")
+    return False
+
+
+def _telegram_users_page() -> None:
+    st.title("Telegram 사용자 관리")
+    st.caption(
+        "등록된 Telegram User ID만 Research Bot과의 **개인 DM**에서 "
+        "Research Memory를 사용할 수 있습니다. 그룹 채팅에는 응답하지 않습니다."
+    )
+    if not _require_telegram_admin():
+        return
+
+    store = _telegram_user_store()
+    with st.form("tg_add_user", clear_on_submit=True):
+        c1, c2 = st.columns([2, 3])
+        raw_id = c1.text_input("Telegram User ID", placeholder="예: 8712588303")
+        display = c2.text_input("표시 이름", placeholder="예: 조은비")
+        if st.form_submit_button("등록", type="primary"):
+            try:
+                uid = int((raw_id or "").strip())
+            except ValueError:
+                st.error("User ID는 숫자여야 합니다.")
+            else:
+                if uid <= 0:
+                    st.error("유효한 User ID를 입력하세요.")
+                else:
+                    store.add_allowed_user(uid, display)
+                    st.success(f"등록됨: {uid}" + (f" ({display.strip()})" if display.strip() else ""))
+                    st.rerun()
+
+    users = store.list_allowed_users()
+    st.markdown(f"#### 등록된 사용자 ({len(users)})")
+    if not users:
+        st.info("아직 등록된 사용자가 없습니다. 위에서 User ID를 추가하세요.")
+        return
+    for user in users:
+        cols = st.columns([2, 3, 1])
+        cols[0].write(f"`{user.telegram_user_id}`")
+        cols[1].write(user.display_name or "—")
+        if cols[2].button("삭제", key=f"tg-del-{user.telegram_user_id}", use_container_width=True):
+            store.remove_allowed_user(user.telegram_user_id)
+            st.rerun()
+
+    if st.button("관리자 잠금", key="tg_admin_lock"):
+        st.session_state.rm_tg_admin_authed = False
+        st.rerun()
+
+
 def main() -> None:
     if not _require_app_login():
         return
@@ -777,6 +858,7 @@ def main() -> None:
             st.warning("RM_MOCK_LLM=true")
         if st.button("잠금", use_container_width=True, key="sidebar_lock"):
             st.session_state.rm_authed = False
+            st.session_state.rm_tg_admin_authed = False
             st.rerun()
         with st.expander("고급", expanded=False):
             st.caption(f"검색 임베딩: `{EMBED_MODEL}`")
@@ -784,6 +866,14 @@ def main() -> None:
                 with st.spinner("Embedding chunks…"):
                     n = repo.rebuild_index()
                 st.success(f"chunks={n} · {repo.last_index_status}")
+            tg_active = st.session_state.page == PAGE_TELEGRAM_USERS
+            if st.button(
+                "Telegram 사용자 관리",
+                key="nav-telegram-users",
+                use_container_width=True,
+                type="primary" if tg_active else "secondary",
+            ):
+                _go(PAGE_TELEGRAM_USERS)
 
     if page == PAGE_HOME:
         _home_page()
@@ -808,6 +898,8 @@ def main() -> None:
         st.title("일정 관리")
         st.caption("과제별 회의·제출·작업·마일스톤을 월간 캘린더로 관리합니다.")
         _schedule_panel()
+    elif page == PAGE_TELEGRAM_USERS:
+        _telegram_users_page()
     else:
         _home_page()
 

@@ -43,7 +43,8 @@ fi
 
 if [[ ! -f .env ]]; then
   echo "missing ${ROOT}/telegram_memory/.env" >&2
-  echo "copy .env.example to .env and fill TELEGRAM_BOT_TOKEN / TELEGRAM_ALLOWED_MEMBER_CHAT_IDS" >&2
+  echo "copy .env.example to .env and fill TELEGRAM_BOT_TOKEN" >&2
+  echo "(allow users via Streamlit Telegram admin page)" >&2
   exit 1
 fi
 

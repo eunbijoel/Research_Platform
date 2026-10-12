@@ -18,6 +18,8 @@ services:
     volumes:
       # Persist KB, uploads, indexes, coding_agent workspace
       - ./data:/app/data
+      # Telegram chat log + allowed User IDs (shared with host bot)
+      - ./telegram_memory/data:/app/telegram_memory/data
     env_file:
       - .env
     environment:

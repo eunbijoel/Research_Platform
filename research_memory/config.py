@@ -53,6 +53,15 @@ EMBED_TIMEOUT_SEC = int(_env("RM_EMBED_TIMEOUT_SEC", "120"))
 EMBED_BATCH_SIZE = int(_env("RM_EMBED_BATCH_SIZE", "16"))
 MOCK_LLM = _env_bool("RM_MOCK_LLM", False)
 APP_PASSWORD = _env("RM_APP_PASSWORD", "")
+# Separate from APP_PASSWORD — gates the Telegram user-admin page only.
+TELEGRAM_ADMIN_PASSWORD = _env("RM_TELEGRAM_ADMIN_PASSWORD", "")
+# Same SQLite as the Telegram bot (chat log + allowed users).
+TELEGRAM_CHAT_DB = Path(
+    _env(
+        "TELEGRAM_CHAT_DB",
+        str(PROJECT_ROOT / "telegram_memory" / "data" / "chat.sqlite3"),
+    )
+).expanduser()
 
 CHUNK_SIZE = 900
 CHUNK_OVERLAP = 120
