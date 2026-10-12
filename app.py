@@ -771,8 +771,12 @@ def _telegram_users_page() -> None:
     store = _telegram_user_store()
     with st.form("tg_add_user", clear_on_submit=True):
         c1, c2 = st.columns([2, 3])
-        raw_id = c1.text_input("Telegram User ID", placeholder="예: 8712588303")
-        display = c2.text_input("표시 이름", placeholder="예: 조은비")
+        raw_id = c1.text_input(
+            "Telegram User ID",
+            placeholder="예: 1234567890",
+            help="Telegram에서 User Info → Get ID → IDbot으로 숫자 10자리 User ID를 확인합니다.",
+        )
+        display = c2.text_input("표시 이름", placeholder="예: 홍길동")
         if st.form_submit_button("등록", type="primary"):
             try:
                 uid = int((raw_id or "").strip())
