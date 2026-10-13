@@ -90,35 +90,54 @@ Falls back to TF-IDF only when embeddings are unavailable.
 
 ## Run
 
-**Requires Python 3.12+** (`deepagents-code`).
+### Web (Research Platform)
+
+On the team server (Docker), just open the browser:
+
+- URL: [http://bigsoft.iptime.org:51100/](http://bigsoft.iptime.org:51100/)
+- Enter the web password (`RM_APP_PASSWORD`) on the first screen
+
+Local run:
 
 ```bash
 cd /mnt/data/eunbi/research-memory
-python3.12 -m venv .venv312
-.venv312/bin/pip install -r requirements.txt
 ./run_app.sh
+# Browser: http://127.0.0.1:8505
 ```
 
-Open in browser: [http://127.0.0.1:8505](http://127.0.0.1:8505)
+(First time only: Python 3.12+ venv + `pip install -r requirements.txt`, set `RM_APP_PASSWORD` in root `.env`)
 
-The first screen asks for a password. Set `RM_APP_PASSWORD` in `.env`, then run `./run_app.sh` (`cp .env.example .env`).
+### Telegram Bot
 
-### Research Memory Bot (Telegram)
+Separate process from the web app — the bot must be running to answer DMs.  
+Only registered Telegram User IDs may query Memory via **private DM** (`/today`, `/week`, natural language). No replies in groups.
 
-Separate process from Streamlit, with its own bot token. Reads Memory through `answer_question()` only (no writes). Only Telegram User IDs registered under **Advanced → Telegram user admin** may use the bot via **private DM** (no replies in groups). That admin page is gated by `RM_TELEGRAM_ADMIN_PASSWORD` (separate from `RM_APP_PASSWORD`). `/today` and `/week` list schedule items (read-only).
+**1) Start the bot in a terminal**
 
 ```bash
 cd /mnt/data/eunbi/research-memory
-# Root .env: RM_TELEGRAM_ADMIN_PASSWORD=…  (web admin only)
-.venv312/bin/pip install -r telegram_memory/requirements.txt
-cp telegram_memory/.env.example telegram_memory/.env   # TELEGRAM_BOT_TOKEN only
-./run_telegram.sh check    # no token required
-./run_telegram.sh          # Bot API long polling (private DM)
+./run_telegram.sh
 ```
 
-Optional **Telethon/MTProto MVP** (separate process): log in as a user account and answer only in `TELETHON_CHAT_IDS`. No history scrape / Memory writes. Run `./run_telegram.sh user`.
+(First time: `pip install -r telegram_memory/requirements.txt`, set `TELEGRAM_BOT_TOKEN` in `telegram_memory/.env`.  
+Optional second bot: `TELEGRAM_BOT_TOKEN_SECONDARY` — same Memory/allowlist; one `./run_telegram.sh` polls both.)
 
-The web app is still `./run_app.sh`. Run both if you want Telegram and the browser at the same time.
+**2) Register users in the web UI**
+
+1. Open [http://bigsoft.iptime.org:51100/](http://bigsoft.iptime.org:51100/) and log in with the web password  
+2. Sidebar **Advanced → Telegram user admin**  
+3. Enter the admin password (`RM_TELEGRAM_ADMIN_PASSWORD`, different from the web password)  
+4. Add **Telegram User ID** + display name
+
+**How to find a User ID**
+
+1. In Telegram, search `@userinfobot` → **Start**  
+2. Copy the numeric ID (~10 digits)  
+3. Paste it into the admin page and save  
+
+Registered users can then DM the Research Bot directly.
+
+Optional **Telethon/MTProto MVP** (separate from Bot API): set `TELETHON_API_ID` / `TELETHON_API_HASH` / `TELETHON_CHAT_IDS`, then `./run_telegram.sh user`.
 
 ### Data storage
 

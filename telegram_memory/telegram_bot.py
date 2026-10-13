@@ -48,11 +48,13 @@ def help_text(platform_url: str) -> str:
 
 
 class TelegramBotApp:
-    def __init__(self, ctx: AppContext) -> None:
+    def __init__(self, ctx: AppContext, *, bot_label: str = "primary") -> None:
         self.ctx = ctx
+        self.bot_label = bot_label
 
-    def build(self) -> Application:
-        app = Application.builder().token(self.ctx.settings.telegram_bot_token).build()
+    def build(self, *, token: str | None = None) -> Application:
+        tok = (token or self.ctx.settings.telegram_bot_token).strip()
+        app = Application.builder().token(tok).build()
         app.add_handler(CommandHandler("start", self.on_start))
         app.add_handler(CommandHandler("help", self.on_help))
         app.add_handler(CommandHandler("projects", self.on_projects))
@@ -61,7 +63,17 @@ class TelegramBotApp:
         app.add_handler(CommandHandler("week", self.on_week))
         app.add_handler(CommandHandler("month", self.on_month))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_text))
+        app.add_error_handler(self.on_error)
         return app
+
+    async def on_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Log per-bot errors without stopping other bots' polling loops."""
+        logger.error(
+            "telegram handler error bot=%s update=%s",
+            self.bot_label,
+            type(update).__name__,
+            exc_info=context.error,
+        )
 
     async def on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._gate(update, context):
