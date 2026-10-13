@@ -16,7 +16,7 @@ from research_memory.config import (
     OLLAMA_BASE_URL,
     VECTOR_INDEX_PATH,
 )
-from research_memory.kb.index import TfidfIndex
+from research_memory.kb.index import TfidfIndex, normalize_hangul_separators
 
 
 class EmbeddingError(Exception):
@@ -117,7 +117,8 @@ class VectorIndex:
     ) -> "VectorIndex":
         self.model = model or EMBED_MODEL
         self.chunks = chunks
-        texts = [c.get("text", "") for c in chunks]
+        # Embed separator-normalized text; keep original chunk text for snippets.
+        texts = [normalize_hangul_separators(c.get("text", "") or "") for c in chunks]
         raw = embed_texts(texts, model=self.model)
         self.vectors = [_l2_normalize(v) for v in raw]
         self.backend = "ollama"
@@ -126,7 +127,9 @@ class VectorIndex:
     def search(self, query: str, top_k: int = 6) -> list[dict[str, Any]]:
         if not query.strip() or not self.chunks or not self.vectors:
             return []
-        q = _l2_normalize(embed_query(query, model=self.model))
+        q = _l2_normalize(
+            embed_query(normalize_hangul_separators(query), model=self.model)
+        )
         scored: list[tuple[float, int]] = []
         for i, vec in enumerate(self.vectors):
             score = _cosine(q, vec)
@@ -210,14 +213,20 @@ def _rrf_fuse(
     *,
     top_k: int,
     k: int = 60,
+    weights: list[float] | None = None,
 ) -> list[dict[str, Any]]:
     """Reciprocal Rank Fusion over multiple ranked hit lists."""
+    if weights is None:
+        weights = [1.0] * len(ranked_lists)
+    if len(weights) != len(ranked_lists):
+        raise ValueError("weights length must match ranked_lists")
     scores: dict[str, float] = {}
     best: dict[str, dict[str, Any]] = {}
-    for hits in ranked_lists:
+    for hits, weight in zip(ranked_lists, weights):
+        w = float(weight)
         for rank, hit in enumerate(hits, start=1):
             key = _chunk_key(hit)
-            scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank)
+            scores[key] = scores.get(key, 0.0) + w / (k + rank)
             prev = best.get(key)
             if prev is None or float(hit.get("score") or 0) > float(prev.get("score") or 0):
                 best[key] = dict(hit)
@@ -273,7 +282,15 @@ def search_retrieval(
             tfidf_hits = []
 
     if vector_hits and tfidf_hits:
-        return _rrf_fuse([vector_hits, tfidf_hits], top_k=top_k), "hybrid"
+        # Lexical 2x: Hangul exact tokens (한독≈한-독) beat dense near-miss noise.
+        return (
+            _rrf_fuse(
+                [tfidf_hits, vector_hits],
+                top_k=top_k,
+                weights=[2.0, 1.0],
+            ),
+            "hybrid",
+        )
     if vector_hits:
         return vector_hits[:top_k], "vector"
     if tfidf_hits:
@@ -310,7 +327,9 @@ def _search_vector_scoped(
 ) -> list[dict[str, Any]]:
     if not query.strip() or not index.chunks:
         return []
-    q = _l2_normalize(embed_query(query, model=index.model))
+    q = _l2_normalize(
+        embed_query(normalize_hangul_separators(query), model=index.model)
+    )
     scored: list[tuple[float, int]] = []
     for i, ch in enumerate(index.chunks):
         if str(ch.get("document_id") or "") != document_id:
@@ -380,7 +399,14 @@ def _search_retrieval_scoped(
     tfidf_hits = _search_tfidf_scoped(doc_chunks, query, fetch_k)
 
     if vector_hits and tfidf_hits:
-        return _rrf_fuse([vector_hits, tfidf_hits], top_k=top_k), "hybrid"
+        return (
+            _rrf_fuse(
+                [tfidf_hits, vector_hits],
+                top_k=top_k,
+                weights=[2.0, 1.0],
+            ),
+            "hybrid",
+        )
     if vector_hits:
         return vector_hits[:top_k], "vector"
     if tfidf_hits:

@@ -9,10 +9,63 @@ from typing import Any
 
 
 _TOKEN_RE = re.compile(r"[A-Za-z가-힣][A-Za-z가-힣0-9_\-]{1,}")
+# 한-독 / 한·독 → 한독 (spaces kept so phrases still tokenize)
+_HANGUL_SEP_RE = re.compile(r"(?<=[가-힣])[\-‐‑‒–—―·ㆍ./]+(?=[가-힣])")
+# Longest-first josa/ending strip so 포럼이 → 포럼 (query vs doc match).
+_KO_PARTICLES = (
+    "에서는",
+    "으로는",
+    "으로",
+    "에서",
+    "에게",
+    "부터",
+    "까지",
+    "이랑",
+    "랑",
+    "이가",
+    "을",
+    "를",
+    "은",
+    "는",
+    "이",
+    "가",
+    "에",
+    "의",
+    "로",
+    "와",
+    "과",
+    "도",
+    "만",
+)
+
+
+def normalize_hangul_separators(text: str) -> str:
+    """Collapse separators between Hangul so hyphenated names match glued queries."""
+    if not text:
+        return ""
+    return _HANGUL_SEP_RE.sub("", text)
+
+
+def _strip_korean_particle(token: str) -> str:
+    if len(token) <= 2:
+        return token
+    for particle in _KO_PARTICLES:
+        if token.endswith(particle) and len(token) - len(particle) >= 2:
+            return token[: -len(particle)]
+    return token
 
 
 def tokenize(text: str) -> list[str]:
-    return [t.lower() for t in _TOKEN_RE.findall(text or "")]
+    normalized = normalize_hangul_separators(text or "")
+    out: list[str] = []
+    for raw in _TOKEN_RE.findall(normalized):
+        token = raw.lower()
+        stripped = _strip_korean_particle(token)
+        out.append(stripped)
+        # Keep original too when stripping changed it (index + query both benefit).
+        if stripped != token:
+            out.append(token)
+    return out
 
 
 class TfidfIndex:
