@@ -15,21 +15,6 @@ fi
 
 MODE="${1:-}"
 
-if [[ "${MODE}" == "user" ]]; then
-  if ! "$PYTHON" -c "import dotenv, telethon" >/dev/null 2>&1; then
-    echo "telethon deps missing. install with:" >&2
-    echo "  $PYTHON -m pip install -r ${ROOT}/telegram_memory/requirements.txt" >&2
-    exit 1
-  fi
-  cd "${ROOT}/telegram_memory"
-  if [[ ! -f .env ]]; then
-    echo "missing ${ROOT}/telegram_memory/.env" >&2
-    echo "set TELETHON_API_ID / TELETHON_API_HASH / TELETHON_CHAT_IDS" >&2
-    exit 1
-  fi
-  exec "$PYTHON" app.py user
-fi
-
 if ! "$PYTHON" -c "import dotenv, telegram" >/dev/null 2>&1; then
   echo "telegram bot deps missing. install with:" >&2
   echo "  $PYTHON -m pip install -r ${ROOT}/telegram_memory/requirements.txt" >&2
@@ -39,6 +24,11 @@ fi
 cd "${ROOT}/telegram_memory"
 if [[ "${MODE}" == "check" ]]; then
   exec "$PYTHON" app.py check
+fi
+
+if [[ "${MODE}" == "user" ]]; then
+  echo "Telethon user mode was removed. Use ./run_telegram.sh (Bot API)." >&2
+  exit 1
 fi
 
 if [[ ! -f .env ]]; then

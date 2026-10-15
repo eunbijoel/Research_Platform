@@ -66,26 +66,6 @@ def _require(name: str, value: str | None) -> str:
     return str(value).strip()
 
 
-def _parse_id_set(*env_names: str) -> frozenset[int]:
-    """Parse comma-separated int IDs from each listed env var (union)."""
-    values: set[int] = set()
-    for name in env_names:
-        raw = os.getenv(name, "")
-        if raw is None or not str(raw).strip():
-            continue
-        for part in str(raw).split(","):
-            piece = part.strip()
-            if not piece:
-                continue
-            try:
-                values.add(int(piece))
-            except ValueError as exc:
-                raise SystemExit(
-                    f"invalid id in {name}: {piece!r} (expected integers, comma-separated)"
-                ) from exc
-    return frozenset(values)
-
-
 def load_env_files() -> None:
     try:
         from dotenv import load_dotenv
@@ -200,7 +180,6 @@ def run_check() -> int:
     print(f"telegram_token_primary={'set' if primary else 'missing'}")
     print(f"telegram_token_secondary={'set' if secondary else 'optional/unset'}")
     print("telegram_polling=not started (use python app.py after filling .env)")
-    print("telethon_user=python app.py user  (TELETHON_API_ID/HASH + TELETHON_CHAT_IDS)")
     return 0
 
 
@@ -209,10 +188,9 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] == "check":
         return run_check()
     if argv and argv[0] == "user":
-        load_env_files()
-        from telethon_user import run_telethon_user
-
-        return asyncio.run(run_telethon_user())
+        raise SystemExit(
+            "Telethon user mode was removed. Use Bot API via ./run_telegram.sh"
+        )
 
     ctx = AppContext(load_settings())
     from telegram_bot import TelegramBotApp
