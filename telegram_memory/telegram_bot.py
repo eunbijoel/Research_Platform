@@ -1,7 +1,7 @@
 """Telegram handlers for Research Memory Bot (Bot API).
 
 Auth: SQLite allowlist (managed in Streamlit admin); answers only in private DMs.
-Question → answer chunks go through user_router (shared with Telethon).
+Question → answer chunks go through user_router.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ from telegram.ext import (
     filters,
 )
 
-from auth import is_private_chat
 from user_router import answer_question_chunks
 
 if TYPE_CHECKING:
@@ -29,6 +28,10 @@ logger = logging.getLogger("research-memory-bot")
 
 _REFUSAL_PREFIX = "메모리에 근거가 없어 답할 수 없습니다"
 _ERROR_TEXT = "Memory에 연결하지 못했습니다."
+
+
+def is_private_chat(chat: object | None) -> bool:
+    return getattr(chat, "type", None) == "private"
 
 
 def help_text(platform_url: str) -> str:
