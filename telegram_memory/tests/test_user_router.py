@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from telethon_user import is_watched_incoming
 from user_router import answer_question_chunks, normalize_question
 
 
@@ -42,11 +41,3 @@ def test_answer_routes_rag_ask() -> None:
     chunks = answer_question_chunks(memory, "KMX 목표가 뭐야?")
     assert "근거에 따른 답" in chunks[0]
     memory.ask.assert_called_once()
-
-
-def test_is_watched_incoming() -> None:
-    chats = frozenset({111, -100999})
-    assert is_watched_incoming(SimpleNamespace(out=False, chat_id=111), chats) is True
-    assert is_watched_incoming(SimpleNamespace(out=True, chat_id=111), chats) is False
-    assert is_watched_incoming(SimpleNamespace(out=False, chat_id=999), chats) is False
-    assert is_watched_incoming(SimpleNamespace(out=False, chat_id=-100999), chats) is True

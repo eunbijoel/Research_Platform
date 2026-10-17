@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from auth import is_private_chat
+from telegram_bot import is_private_chat
 
 
 def test_is_private_chat() -> None:
