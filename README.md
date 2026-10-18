@@ -89,8 +89,6 @@ cd /mnt/data/eunbi/research-memory
 
 등록된 사용자는 Research Bot과의 **개인 DM**에서 바로 질문하면 됩니다.
 
-**Telethon/MTProto MVP** (선택, Bot과 별도): `TELETHON_API_ID` / `TELETHON_API_HASH` / `TELETHON_CHAT_IDS` 설정 후 `./run_telegram.sh user`
-
 ### 데이터 저장
 
 

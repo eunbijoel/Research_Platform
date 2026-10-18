@@ -137,8 +137,6 @@ Optional second bot: `TELEGRAM_BOT_TOKEN_SECONDARY` — same Memory/allowlist; o
 
 Registered users can then DM the Research Bot directly.
 
-Optional **Telethon/MTProto MVP** (separate from Bot API): set `TELETHON_API_ID` / `TELETHON_API_HASH` / `TELETHON_CHAT_IDS`, then `./run_telegram.sh user`.
-
 ### Data storage
 
 | Path | Contents |
