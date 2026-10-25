@@ -1,4 +1,4 @@
-"""Shared question → reply chunks for Bot and Telethon user MVP.
+"""Shared question → reply chunks for the Research Memory Bot.
 
 Keeps MemoryService + format_reply reuse without Telegram SDK imports.
 """
