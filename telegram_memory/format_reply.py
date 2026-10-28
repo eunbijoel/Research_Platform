@@ -9,8 +9,6 @@ from typing import Any, Iterable
 TELEGRAM_LIMIT = 4000
 MAX_CITATIONS = 3
 
-ROLE_REFERENCE = "reference_document"
-
 _DATE_IN_NAME = re.compile(r"(20\d{2}-\d{2}-\d{2})")
 _MD_BOLD = re.compile(r"\*\*(.+?)\*\*")
 _MD_ITALIC = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
@@ -33,22 +31,6 @@ _NOISE_PREFIXES = (
     "manufacturing_x_",
     "manufacturingx_",
 )
-
-
-def citation_badge(cite: Any, repo: Any | None = None) -> str:
-    doc = None
-    doc_id = getattr(cite, "document_id", None)
-    if repo is not None and doc_id:
-        getter = getattr(repo, "get_document", None)
-        if callable(getter):
-            doc = getter(str(doc_id))
-    dtype = (doc or {}).get("doc_type") if isinstance(doc, dict) else None
-    role = getattr(cite, "document_role", None) or (
-        (doc or {}).get("document_role") if isinstance(doc, dict) else None
-    )
-    if role == ROLE_REFERENCE:
-        return "[참고규정]" if dtype == "regulation" else "[참고자료]"
-    return "[연구문서]"
 
 
 def short_source_label(filename: str, *, title: str | None = None) -> str:
