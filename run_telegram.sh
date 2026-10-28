@@ -26,11 +26,6 @@ if [[ "${MODE}" == "check" ]]; then
   exec "$PYTHON" app.py check
 fi
 
-if [[ "${MODE}" == "user" ]]; then
-  echo "Telethon user mode was removed. Use ./run_telegram.sh (Bot API)." >&2
-  exit 1
-fi
-
 if [[ ! -f .env ]]; then
   echo "missing ${ROOT}/telegram_memory/.env" >&2
   echo "copy .env.example to .env and fill TELEGRAM_BOT_TOKEN" >&2
