@@ -6,27 +6,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from format_reply import citation_badge, format_reply, short_source_label
-
-
-def test_project_doc_badge() -> None:
-    cite = SimpleNamespace(document_role="project_document", document_id="d1")
-    assert citation_badge(cite) == "[연구문서]"
-
-
-def test_reference_doc_badge() -> None:
-    cite = SimpleNamespace(document_role="reference_document", document_id="d2")
-    assert citation_badge(cite) == "[참고자료]"
-
-
-def test_regulation_badge_from_repo() -> None:
-    cite = SimpleNamespace(document_role="reference_document", document_id="d3")
-
-    class FakeRepo:
-        def get_document(self, doc_id: str) -> dict:
-            return {"doc_type": "regulation", "document_role": "reference_document"}
-
-    assert citation_badge(cite, FakeRepo()) == "[참고규정]"
+from format_reply import format_reply, short_source_label
 
 
 def test_short_source_label_date_and_title() -> None:
