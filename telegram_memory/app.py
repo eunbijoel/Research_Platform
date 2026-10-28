@@ -187,10 +187,6 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "check":
         return run_check()
-    if argv and argv[0] == "user":
-        raise SystemExit(
-            "Telethon user mode was removed. Use Bot API via ./run_telegram.sh"
-        )
 
     ctx = AppContext(load_settings())
     from telegram_bot import TelegramBotApp
