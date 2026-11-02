@@ -1804,7 +1804,16 @@ def _render_original_preview(doc: dict) -> None:
         return
 
     if kind == "image":
-        st.image(str(path), use_container_width=True)
+        # Cap preview width so large photos don't dominate the pane.
+        max_w = 480
+        try:
+            from PIL import Image
+
+            with Image.open(path) as im:
+                display_w = min(im.size[0], max_w)
+        except Exception:
+            display_w = max_w
+        st.image(str(path), width=display_w)
         return
 
     st.info(
