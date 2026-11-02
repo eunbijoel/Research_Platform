@@ -703,6 +703,43 @@ def _password_matches(entered: str, expected: str) -> bool:
     return hmac.compare_digest(left, right)
 
 
+# Survives full reloads (calendar day/chip clicks use window.location.assign).
+_AUTH_COOKIE = "rm_web_auth"
+_AUTH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
+
+
+def _auth_cookie_value() -> str:
+    return hashlib.sha256(f"rm-web-auth:v1:{APP_PASSWORD or ''}".encode("utf-8")).hexdigest()
+
+
+def _read_auth_cookie() -> str:
+    try:
+        return str(st.context.cookies.get(_AUTH_COOKIE) or "")
+    except Exception:
+        return ""
+
+
+def _emit_auth_cookie(*, clear: bool = False) -> None:
+    if clear:
+        script = f'document.cookie="{_AUTH_COOKIE}=; path=/; Max-Age=0; SameSite=Lax";'
+    else:
+        token = _auth_cookie_value()
+        script = (
+            f'document.cookie="{_AUTH_COOKIE}={token}; path=/; '
+            f'Max-Age={_AUTH_COOKIE_MAX_AGE}; SameSite=Lax";'
+        )
+    st.html(f"<script>{script}</script>", unsafe_allow_javascript=True)
+
+
+def _cookie_authed() -> bool:
+    if not APP_PASSWORD:
+        return False
+    got = _read_auth_cookie()
+    if not got:
+        return False
+    return hmac.compare_digest(got, _auth_cookie_value())
+
+
 def _render_login() -> None:
     st.markdown("### Research Memory Platform")
     st.caption("비밀번호를 입력하세요.")
@@ -715,13 +752,27 @@ def _render_login() -> None:
     if submitted:
         if _password_matches(entered, APP_PASSWORD):
             st.session_state.rm_authed = True
+            st.session_state.rm_auth_cookie_pending = True
             st.rerun()
         st.error("비밀번호가 올바르지 않습니다.")
 
 
 def _require_app_login() -> bool:
+    # Explicit lock: clear cookie this run and skip restore (request still has old cookie).
+    if st.session_state.pop("rm_clear_auth_cookie", False):
+        _emit_auth_cookie(clear=True)
+        st.session_state.rm_authed = False
+        _render_login()
+        return False
+
+    if not st.session_state.get("rm_authed") and _cookie_authed():
+        st.session_state.rm_authed = True
+
     if st.session_state.get("rm_authed"):
+        if st.session_state.pop("rm_auth_cookie_pending", False):
+            _emit_auth_cookie(clear=False)
         return True
+
     _render_login()
     return False
 
@@ -863,6 +914,7 @@ def main() -> None:
         if st.button("잠금", use_container_width=True, key="sidebar_lock"):
             st.session_state.rm_authed = False
             st.session_state.rm_tg_admin_authed = False
+            st.session_state.rm_clear_auth_cookie = True
             st.rerun()
         with st.expander("고급", expanded=False):
             st.caption(f"검색 임베딩: `{EMBED_MODEL}`")
