@@ -61,6 +61,8 @@ def preview_kind(path: Path | None, *, file_type: str = "", filename: str = "") 
         return "hwpx"
     if ext == ".hwp":
         return "hwp"
+    if ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"} or file_type.lower() == "image":
+        return "image"
     return "other"
 
 

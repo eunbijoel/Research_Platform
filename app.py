@@ -557,7 +557,9 @@ def _schedule_task_form(
     st.markdown(
         '<div class="rm-dlg-attach">'
         '<p class="rm-dlg-attach-title">📎 파일첨부</p>'
-        '<p class="rm-dlg-attach-sub">회의록·연구노트 등을 올리면 Memory에 저장되고 이 일정에 연결됩니다.</p>'
+        '<p class="rm-dlg-attach-sub">'
+        "회의록·연구노트·이미지(PNG/JPG 등)를 올리면 Memory에 저장되고 이 일정에 연결됩니다."
+        "</p>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -583,7 +585,22 @@ def _schedule_task_form(
                 st.rerun()
     uploads = st.file_uploader(
         "파일 선택",
-        type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx", "hwp"],
+        type=[
+            "pdf",
+            "docx",
+            "txt",
+            "md",
+            "csv",
+            "xlsx",
+            "xls",
+            "hwpx",
+            "hwp",
+            "png",
+            "jpg",
+            "jpeg",
+            "webp",
+            "gif",
+        ],
         accept_multiple_files=True,
         key=upload_key,
         label_visibility="collapsed",
@@ -1784,6 +1801,10 @@ def _render_original_preview(doc: dict) -> None:
             f"{html_lib.escape(footer)}</span></div>",
             unsafe_allow_html=True,
         )
+        return
+
+    if kind == "image":
+        st.image(str(path), use_container_width=True)
         return
 
     st.info(

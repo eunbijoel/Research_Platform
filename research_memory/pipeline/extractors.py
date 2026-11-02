@@ -34,6 +34,8 @@ def extract_chunks(path: Path) -> tuple[str, list[TextChunk], str]:
             return "hwpx", _hwpx(path), ""
         if ext == ".hwp":
             return "hwp", _hwp(path), ""
+        if ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+            return "image", _image(path), ""
         return "unknown", [], f"Unsupported extension: {ext}"
     except Exception as exc:  # noqa: BLE001 — surface parse failures to ingest
         return ext.lstrip(".") or "unknown", [], str(exc)
@@ -133,6 +135,22 @@ def _hwp(path: Path) -> list[TextChunk]:
     if combined:
         return [TextChunk(text=combined, location="전체")]
     return []
+
+
+def _image(path: Path) -> list[TextChunk]:
+    """Indexable placeholder for image attachments (no OCR)."""
+    name = path.name
+    fmt = path.suffix.lstrip(".").upper() or "IMAGE"
+    detail = f"[이미지] {name}\n형식={fmt}"
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            w, h = im.size
+            detail = f"[이미지] {name}\n형식={fmt} 크기={w}×{h} 모드={im.mode}"
+    except Exception:
+        pass
+    return [TextChunk(text=detail, location="이미지")]
 
 
 def _hwpx(path: Path) -> list[TextChunk]:
