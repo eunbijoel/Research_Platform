@@ -312,10 +312,6 @@ class DeepAgentsBridge:
                 _deepagents_agent._add_interrupt_on = original  # type: ignore[assignment]
         return self._agent
 
-    def reset_agent(self) -> None:
-        """Force recreate (e.g. after model / auto_approve change)."""
-        self._agent = None
-
     def _config(self, thread_id: str) -> dict[str, Any]:
         return {
             "configurable": {"thread_id": thread_id},

@@ -78,7 +78,7 @@ def test_existing_flags_preserved_and_reset_reregisters(monkeypatch, tmp_path: P
     second = bridge.agent
     assert first is second
     assert len(captured) == 1
-    bridge.reset_agent()
+    bridge._agent = None
     _ = bridge.agent
     assert len(captured) == 2
     for kwargs in captured:

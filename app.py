@@ -3344,10 +3344,10 @@ def _proposal_panel() -> None:
                 )
             )
             st.caption(
-                f"적용됨: 총 {_fmt_budget_ui(int(draft['budget_scenario_total']))}천원 · "
+                f"적용됨: 총 {int(draft['budget_scenario_total']):,}천원 · "
                 f"주관 {float(draft.get('budget_scenario_lead_pct') or 0):.1f}% "
-                f"({_fmt_budget_ui(lead_a)}) / "
-                f"공동(A) {_fmt_budget_ui(int(draft['budget_scenario_total']) - lead_a)}"
+                f"({lead_a:,}) / "
+                f"공동(A) {int(draft['budget_scenario_total']) - lead_a:,}"
             )
         st.dataframe(budget_rows, use_container_width=True, hide_index=True)
         with st.expander("연구비 각주·안내"):
@@ -3422,10 +3422,6 @@ DRAFT_LABELS_UI = {
     "open_questions": "확인 필요",
     "budget_plan": "연구개발비 사용 계획",
 }
-
-
-def _fmt_budget_ui(n: int) -> str:
-    return f"{int(n):,}"
 
 
 def _render_proposal_review(findings: list) -> None:
