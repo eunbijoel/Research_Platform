@@ -35,8 +35,6 @@ PAGE_TEXT_PREVIEW_CHARS = 500  # 결과/미리보기 표시 상한
 # 초안(pdf_similarity_checker) 기본값: 가로 180 / 세로 120 — 로고·아이콘 노이즈 완화
 DEFAULT_MIN_IMAGE_WIDTH = 180
 DEFAULT_MIN_IMAGE_HEIGHT = 120
-# 하위 호환: 단일 값 UI가 필요할 때 가로 기준을 사용
-DEFAULT_MIN_IMAGE_SIZE = DEFAULT_MIN_IMAGE_WIDTH
 DEFAULT_PHASH_DISTANCE_THRESHOLD = 8  # 이 값 이하이면 유사 이미지로 판정 (0=완전 동일)
 
 IMAGE_VERDICT_LEVELS = [
@@ -56,5 +54,4 @@ def image_verdict(hamming_distance: int) -> str:
 # --- 안전장치 ---
 DEFAULT_MAX_RESULTS = 500  # 결과 표/다운로드에 포함할 최대 쌍 개수
 DEFAULT_MAX_SENTENCES = 5000  # 대용량 PDF 대비 문장 비교 hard-cap (초안과 동일)
-MAX_SENTENCES_WARNING = 5000  # hard-cap 도달 시 사용자에게 안내
 EMBEDDING_BATCH_SIZE = 64
