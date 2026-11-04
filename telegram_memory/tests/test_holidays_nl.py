@@ -12,7 +12,6 @@ from service import (
     HolidayHit,
     HolidayQuery,
     MemoryService,
-    detect_schedule_intent,
     month_bounds,
     parse_mentioned_month,
 )

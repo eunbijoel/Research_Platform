@@ -5,9 +5,7 @@ from pathlib import Path
 
 from langchain_core.tools import BaseTool, StructuredTool
 
-from coding_agent.integrations.excel_subprocess import ExcelClientResult
 from coding_agent.tools.excel_tool import (
-    ANALYZE_EXCEL_DESCRIPTION,
     ANALYZE_EXCEL_NAME,
     build_analyze_excel_tool,
     format_tool_result,
@@ -26,10 +24,9 @@ def _tool_schema(tool: StructuredTool) -> dict:
 def test_tool_name_description_schema(workspace: Path) -> None:
     tool = build_analyze_excel_tool(workspace)
     assert tool.name == ANALYZE_EXCEL_NAME
-    assert "Excel or CSV" in tool.description or "Excel/CSV" in tool.description or "Excel" in tool.description
+    assert "Excel" in tool.description
     assert "code-generation" in tool.description or "code-editing" in tool.description
     schema = _tool_schema(tool)
-    props = schema.get("properties") or schema.get("required")
     assert "files" in schema.get("properties", {})
     assert "prompt" in schema.get("properties", {})
     assert "output_directory" not in schema.get("properties", {})

@@ -55,10 +55,6 @@ class ExcelClientResult:
     pid: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
-    @property
-    def excel_response(self) -> dict[str, Any] | None:
-        return self.payload
-
 
 def build_analyze_request(
     *,
