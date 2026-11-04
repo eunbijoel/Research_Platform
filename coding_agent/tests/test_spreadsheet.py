@@ -49,17 +49,6 @@ def test_sanitize_blocks_path_traversal() -> None:
     assert sanitize_filename("sales.xlsx") == "sales.xlsx"
 
 
-def test_clear_session_uploads_wipes_legacy_dir(workspace: Path) -> None:
-    from coding_agent.spreadsheet import SESSION_UPLOAD_DIR, clear_session_uploads
-
-    legacy = workspace / SESSION_UPLOAD_DIR
-    legacy.mkdir()
-    path = legacy / "tmp.csv"
-    path.write_bytes(b"a,b\n1,2\n")
-    clear_session_uploads(workspace)
-    assert not path.exists()
-
-
 def test_save_upload_xlsx_and_csv(workspace: Path) -> None:
     src = workspace / "tmp.xlsx"
     _sample_xlsx(src)

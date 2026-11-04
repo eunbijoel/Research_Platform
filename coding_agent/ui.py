@@ -38,7 +38,6 @@ from coding_agent.workbench import (
 )
 from coding_agent.spreadsheet import (
     MAX_UPLOAD_BYTES,
-    clear_session_uploads,
     ensure_upload_dirs,
     format_upload_context,
     is_spreadsheet_path as is_spreadsheet_file,
@@ -976,12 +975,6 @@ def _go_new_chat() -> None:
     st.session_state.uploaded_files = []
     st.session_state.upload_seen_ids = set()
     st.session_state.upload_status = None
-    # Chat attachments now live under uploads/ and are kept across chats.
-    # Still wipe any leftover legacy .session_uploads/ files.
-    try:
-        clear_session_uploads(resolve_workspace())
-    except Exception:  # noqa: BLE001
-        pass
     st.rerun()
 
 

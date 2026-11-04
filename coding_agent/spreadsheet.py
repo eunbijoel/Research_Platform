@@ -10,8 +10,6 @@ from typing import Any
 from langchain_core.tools import tool
 
 UPLOAD_DIR = "uploads"
-# Legacy chat-upload dir; wiped on new chat if leftovers remain.
-SESSION_UPLOAD_DIR = ".session_uploads"
 OUTPUT_DIR = "outputs"
 ALLOWED_SUFFIXES = {".xlsx", ".xls", ".csv"}
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MiB
@@ -28,19 +26,6 @@ def ensure_upload_dirs(workspace: Path) -> tuple[Path, Path]:
     uploads.mkdir(parents=True, exist_ok=True)
     outputs.mkdir(parents=True, exist_ok=True)
     return uploads, outputs
-
-
-def clear_session_uploads(workspace: Path) -> None:
-    """Remove leftover files under ``.session_uploads/`` (legacy ephemeral path)."""
-    path = workspace / SESSION_UPLOAD_DIR
-    if not path.is_dir():
-        return
-    for child in path.iterdir():
-        if child.is_file():
-            try:
-                child.unlink()
-            except OSError:
-                pass
 
 
 def sanitize_filename(name: str) -> str:
