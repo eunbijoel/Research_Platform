@@ -15,7 +15,6 @@ from typing import Any, Literal
 from research_memory.config import CHUNK_OVERLAP, CHUNK_SIZE
 from research_memory.pipeline.chunking import refine_chunks
 from research_memory.pipeline.extractors import extract_chunks
-from research_memory.schema import TextChunk
 
 ChunkStrategy = Literal["legacy", "structure"]
 

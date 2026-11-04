@@ -100,20 +100,13 @@ def compute_similarity_distribution(
 
     if fill_empty:
         start = min(counts.keys())
-        # 시작~1.00까지 0.01 간격으로 채움 (빈 구간은 0)
+        # 시작~1.00까지 step 간격으로 채움 (빈 구간은 0); 부동소수 누적 오차 방지
         rows = []
-        x = start
-        # 부동소수 누적 오차 방지
         n_steps = int(round((1.0 - start) / step))
         for i in range(n_steps + 1):
-            x_r = round(start + i * step, 2)
-            if x_r > 1.0:
-                x_r = 1.0
+            x_r = min(1.0, round(start + i * step, 2))
             rows.append({"유사도": x_r, "쌍 개수": int(counts.get(x_r, 0))})
-        # 1.00이 빠졌으면 추가
-        if rows and rows[-1]["유사도"] < 1.0 and 1.0 in counts:
-            rows.append({"유사도": 1.0, "쌍 개수": int(counts.get(1.0, 0))})
-        elif rows and rows[-1]["유사도"] < 1.0:
+        if rows and rows[-1]["유사도"] < 1.0:
             rows.append({"유사도": 1.0, "쌍 개수": int(counts.get(1.0, 0))})
         return pd.DataFrame(rows)
 
