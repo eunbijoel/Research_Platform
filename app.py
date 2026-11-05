@@ -883,7 +883,6 @@ def main() -> None:
     if not _require_app_login():
         return
 
-    _inject_ui_css()
     if "page" not in st.session_state:
         st.session_state.page = PAGE_HOME
     _sched_handle_query_params()
@@ -891,10 +890,14 @@ def main() -> None:
     page = st.session_state.page
 
     if page == PAGE_CODING_AGENT:
+        # Skip Research Memory expander CSS — it forces light panels and
+        # breaks Coding Agent Dark theme contrast.
         from coding_agent.ui import run_coding_agent_app
 
         run_coding_agent_app(on_home=lambda: _go(PAGE_HOME))
         return
+
+    _inject_ui_css()
 
     with st.sidebar:
         st.markdown("### Research Memory")

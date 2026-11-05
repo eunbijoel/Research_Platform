@@ -106,27 +106,84 @@ def _inject_theme(theme: str) -> None:
     background: var(--ca-sidebar) !important;
     border-right: 1px solid var(--ca-border);
   }
-  [data-testid="stSidebar"] * { color: var(--ca-text) !important; }
+  [data-testid="stSidebar"] p,
+  [data-testid="stSidebar"] span,
+  [data-testid="stSidebar"] label,
+  [data-testid="stSidebar"] li,
+  [data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+  [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+  [data-testid="stSidebar"] .stCaption {
+    color: var(--ca-text) !important;
+  }
   [data-testid="stHeader"] { background: transparent !important; }
   [data-testid="stChatMessage"] {
     background: var(--ca-panel) !important;
     border: 1px solid var(--ca-border);
     border-radius: 8px;
   }
-  /* Select / input: dark surface + light text (no dark-on-dark) */
-  [data-baseweb="select"] > div,
-  [data-baseweb="select"] > div > div,
-  [data-baseweb="input"] input,
-  [data-baseweb="base-input"],
-  .stTextInput input {
-    background-color: #1c2430 !important;
-    color: #e6edf3 !important;
+  /* Expander (Settings / Files extras): dark panel, not Streamlit light defaults */
+  [data-testid="stExpander"],
+  [data-testid="stExpander"] details,
+  [data-testid="stExpanderDetails"],
+  [data-testid="stExpander"] > details > div {
+    background: var(--ca-panel) !important;
+    color: var(--ca-text) !important;
     border-color: var(--ca-border) !important;
   }
-  [data-baseweb="popover"] li, [data-baseweb="menu"] li {
-    background-color: #151b23 !important;
-    color: #e6edf3 !important;
+  [data-testid="stExpander"] summary,
+  [data-testid="stExpander"] summary p,
+  [data-testid="stExpander"] summary span {
+    color: var(--ca-text) !important;
+    background: transparent !important;
   }
+  [data-testid="stSidebar"] [data-testid="stExpander"] {
+    background: var(--ca-panel) !important;
+    border: 1px solid var(--ca-border) !important;
+    border-radius: 8px !important;
+  }
+  /* Select / input / radio / toggle */
+  [data-baseweb="select"] > div,
+  [data-baseweb="select"] > div > div,
+  [data-baseweb="select"] span,
+  [data-baseweb="input"],
+  [data-baseweb="input"] input,
+  [data-baseweb="base-input"],
+  [data-baseweb="base-input"] input,
+  .stTextInput input,
+  .stTextInput > div > div,
+  .stSelectbox > div > div,
+  .stNumberInput input,
+  textarea {
+    background-color: var(--ca-input-bg) !important;
+    color: var(--ca-text) !important;
+    border-color: var(--ca-border) !important;
+    caret-color: var(--ca-text) !important;
+  }
+  [data-baseweb="select"] svg { fill: var(--ca-muted) !important; }
+  [data-baseweb="popover"],
+  [data-baseweb="popover"] ul,
+  [data-baseweb="menu"],
+  [data-baseweb="menu"] li,
+  [role="listbox"],
+  [role="option"] {
+    background-color: var(--ca-panel) !important;
+    color: var(--ca-text) !important;
+    border-color: var(--ca-border) !important;
+  }
+  [role="option"][aria-selected="true"],
+  [data-baseweb="menu"] li:hover {
+    background-color: var(--ca-hover) !important;
+  }
+  [data-testid="stRadio"] label,
+  [data-testid="stRadio"] p {
+    color: var(--ca-text) !important;
+  }
+  [data-testid="stCheckbox"] label,
+  [data-testid="stCheckbox"] p,
+  [data-testid="stWidgetLabel"] {
+    color: var(--ca-muted) !important;
+  }
+  div[data-testid="stSwitch"] label p { color: var(--ca-text) !important; }
   .stButton > button {
     background-color: #1c2430 !important;
     color: #e6edf3 !important;
@@ -141,8 +198,14 @@ def _inject_theme(theme: str) -> None:
     border-color: #238636 !important;
     color: #fff !important;
   }
-  div[data-testid="stChatInput"] {
+  /* Chat input: kill the light outer chrome */
+  [data-testid="stBottom"],
+  [data-testid="stBottomBlockContainer"],
+  [data-testid="stChatInput"],
+  [data-testid="stChatInput"] > div,
+  [data-testid="stChatInput"] > div > div {
     background: transparent !important;
+    border-color: var(--ca-border) !important;
   }
   div[data-testid="stChatInput"] textarea {
     background: var(--ca-input-bg) !important;
@@ -151,6 +214,15 @@ def _inject_theme(theme: str) -> None:
   }
   div[data-testid="stChatInput"] textarea::placeholder {
     color: var(--ca-muted) !important;
+  }
+  /* Ant Design tree iframe / host */
+  iframe[title*="streamlit_antd"],
+  iframe[title*="antd"] {
+    background: transparent !important;
+    color-scheme: dark;
+  }
+  [data-testid="stSidebar"] iframe {
+    background: transparent !important;
   }
   .ca-brand,
   .ca-brand-link,
@@ -194,7 +266,6 @@ def _inject_theme(theme: str) -> None:
   }
   div[data-baseweb="tab"] button { color: var(--ca-muted) !important; }
   div[data-baseweb="tab"] button[aria-selected="true"] { color: var(--ca-text) !important; }
-  [data-testid="stExpander"] summary { color: var(--ca-text) !important; }
   .stSelectbox label, .stTextInput label, .stToggle label { color: var(--ca-muted) !important; }
   section.main .block-container { padding-top: 0.65rem !important; padding-bottom: 0.5rem !important; }
   .ca-new-chat-hint {
@@ -1640,6 +1711,7 @@ def _file_explorer_tree(workspace: Path) -> None:
     tree_target = _fe_folder_value(folder) if folder else selected
     sel_idx = _fe_selected_index(items, tree_target)
     nonce = int(st.session_state.get("fe_tree_nonce", 0))
+    tree_color = "dark" if st.session_state.get("theme") == "Dark" else "teal"
     picked = sac.tree(
         items,
         index=sel_idx if sel_idx is not None else 0,
@@ -1649,8 +1721,9 @@ def _file_explorer_tree(workspace: Path) -> None:
         open_index=open_index,
         height=380,
         size="sm",
+        color=tree_color,
         return_index=False,
-        key=f"fe_tree_{nonce}",
+        key=f"fe_tree_{nonce}_{tree_color}",
     )
     if isinstance(picked, list):
         picked = picked[0] if picked else None
