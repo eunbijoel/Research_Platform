@@ -385,20 +385,23 @@ def _sched_ingest_and_attach(schedule_id: str, uploads: list, project_id: str) -
     errors: list[str] = []
     for f in uploads or []:
         try:
+            upload_name = Path(f.name or "").name or "upload"
             result = ingest_bytes(
                 f.getvalue(),
-                f.name,
+                upload_name,
                 repo=repo,
                 project_id=project_id or "",
                 document_role=ROLE_PROJECT,
             )
             doc_id = result.get("document_id") or result.get("id")
             if not doc_id:
-                errors.append(f"{f.name}: ingest 결과에 document_id가 없습니다.")
+                errors.append(f"{upload_name}: ingest 결과에 document_id가 없습니다.")
                 continue
+            # Keep the Memory title as the uploaded filename (not inferred 과제명 etc.).
+            repo.update_document(str(doc_id), title=upload_name)
             repo.attach_schedule_document(schedule_id, str(doc_id))
         except Exception as exc:  # noqa: BLE001
-            errors.append(f"{f.name}: {exc}")
+            errors.append(f"{getattr(f, 'name', 'upload')}: {exc}")
     return errors
 
 
