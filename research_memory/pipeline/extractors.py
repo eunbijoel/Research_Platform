@@ -22,8 +22,10 @@ def extract_chunks(path: Path) -> tuple[str, list[TextChunk], str]:
     try:
         if ext == ".pdf":
             return "pdf", _pdf(path), ""
-        if ext == ".docx":
+        if ext in {".docx", ".docm"}:
             return "docx", _docx(path), ""
+        if ext == ".doc":
+            return "doc", _doc(path), ""
         if ext in {".txt", ".md"}:
             return ext.lstrip("."), _plain(path), ""
         if ext == ".csv":
@@ -78,7 +80,77 @@ def _docx(path: Path) -> list[TextChunk]:
             row_text = " | ".join(c.text.strip() for c in row.cells if c.text.strip())
             if row_text:
                 chunks.append(TextChunk(text=row_text, location=f"표 {t_i}"))
-    return chunks
+    if chunks:
+        return chunks
+    # Still index the file so Home upload does not fail on near-empty Word docs.
+    return [TextChunk(text=f"[Word 문서] {path.name}", location="파일명")]
+
+
+def _doc(path: Path) -> list[TextChunk]:
+    """Legacy Word .doc (OLE) or mislabeled .docx saved with a .doc extension."""
+    head = path.read_bytes()[:8]
+    if head[:2] == b"PK":
+        return _docx(path)
+    try:
+        import olefile
+    except ImportError as exc:  # pragma: no cover
+        raise ValueError("olefile 패키지가 필요합니다 (.doc 지원).") from exc
+    if not olefile.isOleFile(str(path)):
+        raise ValueError(
+            "유효한 .doc(워드 97-2003) 파일이 아닙니다. "
+            "Word에서 .docx로 저장한 뒤 다시 올려 주세요."
+        )
+    ole = olefile.OleFileIO(str(path))
+    try:
+        raw = b""
+        for entry in ole.listdir():
+            if entry and str(entry[-1]).lower() == "worddocument":
+                raw = ole.openstream(entry).read()
+                break
+        if not raw:
+            raise ValueError("WordDocument 스트림을 찾지 못했습니다.")
+        text = _ole_word_text(raw)
+        if not text.strip():
+            raise ValueError(
+                "구형 .doc에서 텍스트를 추출하지 못했습니다. "
+                "Word에서 .docx로 저장한 뒤 다시 올려 주세요."
+            )
+        return [TextChunk(text=text.strip(), location="전체")]
+    finally:
+        ole.close()
+
+
+def _ole_word_text(raw: bytes) -> str:
+    """Best-effort readable text from a WordDocument OLE stream (no antiword)."""
+    pattern = re.compile(
+        r"[\uac00-\ud7a3A-Za-z0-9]"
+        r"[\uac00-\ud7a3A-Za-z0-9\s\.,,，、。:：;；\-_()（）\[\]/·]{5,}"
+    )
+    found: list[str] = []
+    for align in (0, 1):
+        data = raw[align:]
+        if len(data) % 2:
+            data = data[:-1]
+        decoded = data.decode("utf-16le", errors="ignore")
+        for match in pattern.findall(decoded):
+            piece = " ".join(match.split())
+            if len(piece) >= 6:
+                found.append(piece)
+    if not found:
+        ascii_parts = re.findall(rb"[ -~]{8,}", raw)
+        found = [p.decode("ascii", errors="ignore").strip() for p in ascii_parts]
+    # Preserve order, drop near-duplicates
+    out: list[str] = []
+    seen: set[str] = set()
+    for piece in found:
+        key = piece[:80]
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(piece)
+        if len(out) >= 200:
+            break
+    return "\n".join(out)
 
 
 def _plain(path: Path) -> list[TextChunk]:

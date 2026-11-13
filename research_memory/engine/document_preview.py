@@ -51,8 +51,10 @@ def preview_kind(path: Path | None, *, file_type: str = "", filename: str = "") 
         ext = f".{ft}" if ft else ""
     if ext == ".pdf":
         return "pdf"
-    if ext == ".docx":
+    if ext in {".docx", ".docm"}:
         return "docx"
+    if ext == ".doc":
+        return "doc"
     if ext in {".txt", ".md", ".markdown"}:
         return "text"
     if ext in {".csv", ".xlsx", ".xls"}:

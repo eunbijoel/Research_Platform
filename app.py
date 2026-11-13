@@ -137,6 +137,26 @@ MAIN_NAV = [
     (PAGE_CODING_AGENT, "💻 코딩 에이전트"),
 ]
 
+# Home / schedule / notes / proposal Memory uploads (Word includes legacy .doc).
+MEMORY_UPLOAD_TYPES = [
+    "pdf",
+    "docx",
+    "doc",
+    "docm",
+    "txt",
+    "md",
+    "csv",
+    "xlsx",
+    "xls",
+    "hwpx",
+    "hwp",
+    "png",
+    "jpg",
+    "jpeg",
+    "webp",
+    "gif",
+]
+
 
 def _go(page: str, *, focus_upload: bool = False, doc_id: str | None = None) -> None:
     if focus_upload:
@@ -588,22 +608,7 @@ def _schedule_task_form(
                 st.rerun()
     uploads = st.file_uploader(
         "파일 선택",
-        type=[
-            "pdf",
-            "docx",
-            "txt",
-            "md",
-            "csv",
-            "xlsx",
-            "xls",
-            "hwpx",
-            "hwp",
-            "png",
-            "jpg",
-            "jpeg",
-            "webp",
-            "gif",
-        ],
+        type=MEMORY_UPLOAD_TYPES,
         accept_multiple_files=True,
         key=upload_key,
         label_visibility="collapsed",
@@ -1289,6 +1294,9 @@ def _library_project_docs_view(docs: list, project_id: str) -> None:
     else:
         group = [d for d in docs if (d.get("project_id") or "").strip() == project_id]
 
+    with st.expander("이 폴더에 업로드", expanded=False):
+        _upload_panel(fixed_project_id="" if project_id == "(No project)" else project_id)
+
     st.caption(f"{len(group)} documents in this project")
     group = _sort_documents(group, key_prefix=f"proj-{project_id}")
     _library_doc_list(group, key_prefix=f"proj-{project_id}")
@@ -1755,6 +1763,18 @@ def _render_original_preview(doc: dict) -> None:
         components.html(html_body, height=740, scrolling=True)
         return
 
+    if kind == "doc":
+        from research_memory.pipeline.extractors import extract_chunks
+
+        _ft, chunks, err = extract_chunks(path)
+        if err and not chunks:
+            st.warning(err or "구형 .doc 미리보기를 만들지 못했습니다.")
+            st.caption("원본 다운로드 또는 Word에서 .docx로 저장 후 다시 업로드해 주세요.")
+            return
+        st.caption("구형 .doc 텍스트 미리보기 · 레이아웃은 원본과 다를 수 있습니다.")
+        st.text("\n\n".join(c.text for c in chunks) if chunks else "")
+        return
+
     if kind == "text":
         text, err = text_file_preview(path)
         if err:
@@ -1988,37 +2008,56 @@ def _tokens(text: str) -> set[str]:
     return {t for t in raw.split() if len(t) >= 3 and t not in stop}
 
 
-def _upload_panel() -> None:
-    project_choices = [""] + _rn_project_choices()
-    selected = st.selectbox(
-        "Project",
-        options=project_choices,
-        format_func=lambda x: "(선택 안 함)" if x == "" else x,
-        key="lib_project_select",
-    )
-    custom = st.text_input(
-        "또는 새 Project ID 직접 입력",
-        placeholder="예: 신규과제명",
-        key="lib_project_id",
-    )
-    project_id = (custom or selected or "").strip()
+def _upload_panel(*, fixed_project_id: str | None = None) -> None:
+    """Home / project-folder upload into Memory.
+
+    ``fixed_project_id`` locks the target project (used inside a project folder).
+    """
+    if fixed_project_id is None:
+        key_prefix = "lib"
+    else:
+        safe_pid = re.sub(r"[^a-zA-Z0-9_-]+", "_", fixed_project_id or "none")[:48]
+        key_prefix = f"projup-{safe_pid}"
+    if fixed_project_id is None:
+        project_choices = [""] + _rn_project_choices()
+        selected = st.selectbox(
+            "Project",
+            options=project_choices,
+            format_func=lambda x: "(선택 안 함)" if x == "" else x,
+            key="lib_project_select",
+        )
+        custom = st.text_input(
+            "또는 새 Project ID 직접 입력",
+            placeholder="예: 신규과제명",
+            key="lib_project_id",
+        )
+        project_id = (custom or selected or "").strip()
+    else:
+        project_id = (fixed_project_id or "").strip()
+        if project_id:
+            st.caption(f"업로드 대상: `{project_id}`")
+        else:
+            st.caption("업로드 대상: (프로젝트 없음)")
+
     role_label = st.radio(
         "문서 역할",
         ["연구문서", "참고자료"],
         index=0,
         horizontal=True,
-        key="lib_document_role",
+        key=f"{key_prefix}_document_role",
         help="연구문서=센터 산출물 · 참고자료=규정/RFP/매뉴얼 등 외부 참고",
     )
     document_role = ROLE_REFERENCE if role_label == "참고자료" else ROLE_PROJECT
+    st.caption("Word: .docx / .doc / .docm 지원")
     uploads = st.file_uploader(
         "Select files",
-        type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx", "hwp"],
+        type=MEMORY_UPLOAD_TYPES,
         accept_multiple_files=True,
-        key="lib_uploads",
+        key=f"{key_prefix}_uploads",
     )
 
-    pending = st.session_state.pop("lib_upload_results", None)
+    results_key = f"{key_prefix}_upload_results"
+    pending = st.session_state.pop(results_key, None)
     if pending:
         for item in pending:
             name = item.get("filename") or "file"
@@ -2033,7 +2072,12 @@ def _upload_panel() -> None:
             else:
                 st.error(f"{name}: {item.get('error', 'failed')}")
 
-    if st.button("Upload into Memory", type="primary", disabled=not uploads, key="lib_ingest"):
+    if st.button(
+        "Upload into Memory",
+        type="primary",
+        disabled=not uploads,
+        key=f"{key_prefix}_ingest",
+    ):
         results: list[dict] = []
         for f in uploads or []:
             with st.spinner(f"Ingesting {f.name}…"):
@@ -2056,7 +2100,7 @@ def _upload_panel() -> None:
             results.append(row)
             if result.get("ok") and project_id and not result.get("skipped"):
                 repo.upsert_project(project_id=project_id, title=project_id)
-        st.session_state.lib_upload_results = results
+        st.session_state[results_key] = results
         st.rerun()
 
 
@@ -2331,7 +2375,7 @@ def _research_note_panel() -> None:
         st.markdown("**New / updated files**")
         uploads = st.file_uploader(
             "새 자료 업로드",
-            type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx", "hwp"],
+            type=MEMORY_UPLOAD_TYPES,
             accept_multiple_files=True,
             key="rn_uploads",
             help="문서·메모 등 추가 자료",
@@ -2747,7 +2791,7 @@ def _similarity_panel() -> None:
         "enable_images": enable_images,
         "phash_distance": phash_distance,
     }
-    upload_types = ["pdf", "docx", "pptx", "txt", "md", "csv", "hwpx", "hwp"]
+    upload_types = ["pdf", "docx", "doc", "docm", "pptx", "txt", "md", "csv", "hwpx", "hwp"]
 
     if mode == "업로드 ↔ Memory":
         project_meta = {
@@ -3126,7 +3170,7 @@ def _proposal_panel() -> None:
     project_filter = (selected_project or "").strip() or None
     rfp_file = st.file_uploader(
         "RFP / 공고문",
-        type=["pdf", "docx", "txt", "md", "csv", "xlsx", "xls", "hwpx", "hwp"],
+        type=MEMORY_UPLOAD_TYPES,
         key="prop_rfp_upload",
         help="Library와 동일: PDF/DOCX/TXT/MD/CSV/Excel/HWP/HWPX",
     )
