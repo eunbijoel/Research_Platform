@@ -1131,10 +1131,14 @@ def _library_projects_view(docs: list) -> None:
     if "(No project)" in groups and not groups["(No project)"]:
         groups.pop("(No project)", None)
 
-    items = sorted(
-        groups.items(),
-        key=lambda kv: (kv[0] == "(No project)", kv[0]),
-    )
+    def _project_recent_key(item: tuple[str, list]) -> str:
+        pid, group = item
+        latest_doc = max((str(d.get("created_at") or "") for d in group), default="")
+        created = str((project_meta.get(pid) or {}).get("created_at") or "")
+        # Newest document in the folder; empty folders use the folder created time.
+        return latest_doc or created
+
+    items = sorted(groups.items(), key=_project_recent_key, reverse=True)
     if not items:
         st.info("등록된 프로젝트가 없습니다. + 로 새 폴더를 추가하세요.")
         return
