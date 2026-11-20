@@ -79,7 +79,7 @@ Falls back to TF-IDF only when embeddings are unavailable.
 | Tab | Description |
 | --- | --- |
 | **Home** | Research Memory dashboard: projects, search, upload, recent documents, document detail/roles (research doc / reference), and Document Insight. |
-| **Schedule** | Monthly calendar for project meetings, submissions, tasks, and milestones. Click an empty day cell to add, click a chip to edit. (Notifications and external calendar sync are referenced from [myown](https://github.com/sumin-ma-1/myown).) |
+| **Schedule** | Monthly calendar for project meetings, submissions, tasks, and milestones. Click an empty day cell to add, click a chip to edit. The primary Telegram bot sends a 09:00 KST D-1 reminder and a D+1 file notice to allowlisted users. (External calendar sync is referenced from [myown](https://github.com/sumin-ma-1/myown).) |
 | **Chat** | Ask questions against Memory. Each answer cites its source (file, location) tagged as `[research doc]` or `[regulation]`. Refuses to answer without evidence. |
 | **Research Notes** | Draft research notes or meeting minutes. References Memory + uploads (meeting mode: recording/transcript). Table preview, DOCX/HWPX download, save to Memory. |
 | **Proposal** | Upload an RFP and generate a center-part draft with compliance points, grounded in **research docs + regulations**. This is not a full proposal auto-generator. |
@@ -120,7 +120,10 @@ cd /mnt/data/eunbi/research-memory
 ```
 
 (First time: `pip install -r telegram_memory/requirements.txt`, set `TELEGRAM_BOT_TOKEN` in `telegram_memory/.env`.  
-Optional second bot: `TELEGRAM_BOT_TOKEN_SECONDARY` — same Memory/allowlist; one `./run_telegram.sh` polls both.)
+Optional second bot: `TELEGRAM_BOT_TOKEN_SECONDARY` — same Memory/allowlist; one `./run_telegram.sh` polls both. Schedule notices go out from the primary bot only.)
+
+Preview notices without sending: `cd telegram_memory && python app.py notify --dry-run`  
+Send to one allowlisted user: `python app.py notify --only-user <telegram user id>`
 
 **2) Register users in the web UI**
 
@@ -166,4 +169,4 @@ telegram_memory/       Research Memory Bot (Telegram, read-only)
 
 ## Credits
 
-Calendar UI and notification/external calendar integration referenced from [myown](https://github.com/sumin-ma-1/myown).
+Calendar UI referenced from [myown](https://github.com/sumin-ma-1/myown). Schedule notices are sent by this repo's Telegram bot.
