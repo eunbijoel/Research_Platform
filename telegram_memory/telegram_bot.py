@@ -42,6 +42,7 @@ def help_text(platform_url: str) -> str:
         "- /projects : 프로젝트 폴더 목록·개수\n"
         "- /latest : 최근 활동 폴더\n"
         "- /today · /week · /month : 일정\n"
+        "- 매일 오전 9시(한국 시간)에 내일 일정과 어제 일정 자료 안내를 개인 메시지로 보냅니다.\n"
         "- 일반 채팅 : Memory 문서에서 검색해 답합니다. 근거가 없으면 거절합니다.\n"
         "  (프로젝트·일정·공휴일·마지막 회의·첨부 회의록 질문은 자동으로 구조화 조회)"
     )
@@ -237,6 +238,10 @@ class TelegramBotApp:
             allowed = False
 
         if allowed:
+            try:
+                await asyncio.to_thread(self.ctx.store.note_private_dm, user_id)
+            except Exception:
+                logger.exception("private dm note failed user_id=%s", user_id)
             return True
 
         logger.warning("unauthorized telegram dm user_id=%s", user_id)
