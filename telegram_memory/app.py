@@ -9,6 +9,7 @@ import signal
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from storage import DEFAULT_DB, ChatLogStore
 from telegram.ext import Application
@@ -93,6 +94,7 @@ async def run_polling_apps(
     labeled_apps: list[tuple[str, Application]],
     *,
     stop_event: asyncio.Event | None = None,
+    notifier: Any | None = None,
 ) -> None:
     """Run one or more PTB applications on a single asyncio loop (no nested run_polling)."""
     if not labeled_apps:
@@ -112,6 +114,7 @@ async def run_polling_apps(
             pass
 
     started: list[tuple[str, Application]] = []
+    notify_task: asyncio.Task[None] | None = None
     try:
         for label, app in labeled_apps:
             try:
@@ -145,8 +148,20 @@ async def run_polling_apps(
         if not started:
             raise SystemExit("no telegram bots started successfully")
 
+        primary = next((app for label, app in started if label == "primary"), None)
+        if notifier is not None and primary is not None:
+            notify_task = asyncio.create_task(notifier.serve(primary.bot, stop_event))
+        elif notifier is not None:
+            logger.warning("schedule notifier skipped: primary bot did not start")
+
         await stop_event.wait()
     finally:
+        if notify_task is not None:
+            notify_task.cancel()
+            try:
+                await notify_task
+            except asyncio.CancelledError:
+                pass
         for label, app in reversed(started):
             try:
                 if app.updater and app.updater.running:
@@ -189,6 +204,7 @@ def main(argv: list[str] | None = None) -> int:
         return run_check()
 
     ctx = AppContext(load_settings())
+    from schedule_notifier import ScheduleNotifier
     from telegram_bot import TelegramBotApp
 
     token_pairs = ctx.settings.bot_tokens()
@@ -196,6 +212,11 @@ def main(argv: list[str] | None = None) -> int:
         (label, TelegramBotApp(ctx, bot_label=label).build(token=token))
         for label, token in token_pairs
     ]
+    notifier = ScheduleNotifier(
+        repo=ctx.memory.repo,
+        store=ctx.store,
+        platform_url=ctx.settings.platform_url,
+    )
 
     logger.info(
         "starting telegram long polling chat_db=%s allowed_users=%s bots=%s",
@@ -204,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
         ",".join(label for label, _ in token_pairs),
     )
     try:
-        asyncio.run(run_polling_apps(labeled_apps))
+        asyncio.run(run_polling_apps(labeled_apps, notifier=notifier))
     finally:
         ctx.close()
     return 0

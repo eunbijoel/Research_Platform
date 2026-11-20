@@ -82,6 +82,27 @@ def test_run_polling_apps_continues_when_one_start_fails() -> None:
     good.updater.stop.assert_awaited()
 
 
+def test_schedule_notifier_attaches_only_to_primary() -> None:
+    primary = _mock_app()
+    primary.bot = MagicMock(name="primary-bot")
+    secondary = _mock_app()
+    secondary.bot = MagicMock(name="secondary-bot")
+    seen: dict[str, object] = {}
+
+    class _Notifier:
+        async def serve(self, bot: object, stop_event: asyncio.Event) -> None:
+            seen["bot"] = bot
+            stop_event.set()
+
+    asyncio.run(
+        run_polling_apps(
+            [("primary", primary), ("secondary", secondary)],
+            notifier=_Notifier(),
+        )
+    )
+    assert seen["bot"] is primary.bot
+
+
 def test_run_polling_apps_exits_when_all_fail() -> None:
     bad = _mock_app(fail_initialize=True)
     with pytest.raises(SystemExit, match="no telegram bots started"):
