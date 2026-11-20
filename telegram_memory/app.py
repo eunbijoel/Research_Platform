@@ -75,15 +75,17 @@ def load_env_files() -> None:
     load_dotenv(ROOT / ".env", override=False)
 
 
-def load_settings() -> Settings:
+def load_settings(*, require_token: bool = True) -> Settings:
     load_env_files()
     db_raw = os.getenv("TELEGRAM_CHAT_DB", "").strip()
     platform_url = (os.getenv("PLATFORM_URL") or DEFAULT_PLATFORM_URL).strip()
     if not platform_url:
         platform_url = DEFAULT_PLATFORM_URL
     secondary = (os.getenv("TELEGRAM_BOT_TOKEN_SECONDARY") or "").strip()
+    raw_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    token = _require("TELEGRAM_BOT_TOKEN", raw_token) if require_token else (raw_token or "").strip()
     return Settings(
-        telegram_bot_token=_require("TELEGRAM_BOT_TOKEN", os.getenv("TELEGRAM_BOT_TOKEN")),
+        telegram_bot_token=token,
         telegram_bot_token_secondary=secondary,
         chat_db_path=Path(db_raw) if db_raw else DEFAULT_DB,
         platform_url=platform_url.rstrip("/") + "/",
@@ -195,13 +197,103 @@ def run_check() -> int:
     print(f"telegram_token_primary={'set' if primary else 'missing'}")
     print(f"telegram_token_secondary={'set' if secondary else 'optional/unset'}")
     print("telegram_polling=not started (use python app.py after filling .env)")
+    print("schedule_notifier=daily 09:00 Asia/Seoul on the primary bot when polling")
+    print("notify_dry_run=python app.py notify --dry-run")
     return 0
+
+
+def run_notify(argv: list[str]) -> int:
+    """Send today's notices, or print them with --dry-run. Primary token only."""
+    import argparse
+    from datetime import date
+
+    from schedule_notifier import build_plans, dispatch_plans, kst_today
+
+    parser = argparse.ArgumentParser(prog="app.py notify")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print notices without sending or recording them",
+    )
+    parser.add_argument(
+        "--only-user",
+        type=int,
+        default=None,
+        help="send only to this allowlisted user id (must have a private DM)",
+    )
+    parser.add_argument(
+        "--today",
+        default="",
+        help="treat this YYYY-MM-DD as the Korea calendar day",
+    )
+    args = parser.parse_args(argv)
+    if args.today:
+        today = date.fromisoformat(args.today)
+    else:
+        today = kst_today()
+
+    ctx = AppContext(load_settings(require_token=not args.dry_run))
+    try:
+        plans, reason = build_plans(
+            ctx.memory.repo,
+            ctx.store,
+            today=today,
+            platform_url=ctx.settings.platform_url,
+            only_user=args.only_user,
+        )
+        if reason:
+            print(reason)
+        if args.dry_run:
+            for plan in plans:
+                print("---")
+                print(
+                    f"user={plan.telegram_user_id} kind={plan.kind} "
+                    f"schedule={plan.schedule_id} anchor={plan.anchor_date}"
+                )
+                print(plan.text)
+            print(f"dry-run notices={len(plans)} today={today.isoformat()}")
+            return 0
+
+        from telegram import Bot
+
+        async def _send_all() -> list:
+            bot = Bot(ctx.settings.telegram_bot_token)
+            await bot.initialize()
+
+            async def _send(user_id: int, text: str) -> None:
+                await bot.send_message(
+                    chat_id=user_id,
+                    text=text,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+
+            try:
+                return await dispatch_plans(
+                    plans,
+                    ctx.store,
+                    _send,
+                    owner=f"cli-{os.getpid()}",
+                )
+            finally:
+                await bot.shutdown()
+
+        failed = asyncio.run(_send_all())
+        print(
+            f"notices={len(plans)} failed={len(failed)} today={today.isoformat()} "
+            f"only_user={args.only_user if args.only_user is not None else 'allowlist'}"
+        )
+        return 1 if failed else 0
+    finally:
+        ctx.close()
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "check":
         return run_check()
+    if argv and argv[0] == "notify":
+        return run_notify(argv[1:])
 
     ctx = AppContext(load_settings())
     from schedule_notifier import ScheduleNotifier
