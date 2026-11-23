@@ -143,6 +143,8 @@ MEMORY_UPLOAD_TYPES = [
     "docx",
     "doc",
     "docm",
+    "ppt",
+    "pptx",
     "txt",
     "md",
     "csv",
@@ -155,6 +157,7 @@ MEMORY_UPLOAD_TYPES = [
     "jpeg",
     "webp",
     "gif",
+    "zip",
 ]
 
 

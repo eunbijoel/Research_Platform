@@ -55,6 +55,8 @@ def preview_kind(path: Path | None, *, file_type: str = "", filename: str = "") 
         return "docx"
     if ext == ".doc":
         return "doc"
+    if ext in {".pptx", ".ppt"} or file_type.lower() in {"pptx", "ppt"}:
+        return "pptx"
     if ext in {".txt", ".md", ".markdown"}:
         return "text"
     if ext in {".csv", ".xlsx", ".xls"}:
@@ -65,6 +67,8 @@ def preview_kind(path: Path | None, *, file_type: str = "", filename: str = "") 
         return "hwp"
     if ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"} or file_type.lower() == "image":
         return "image"
+    if ext == ".zip" or file_type.lower() == "zip":
+        return "zip"
     return "other"
 
 

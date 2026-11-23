@@ -26,6 +26,10 @@ def extract_chunks(path: Path) -> tuple[str, list[TextChunk], str]:
             return "docx", _docx(path), ""
         if ext == ".doc":
             return "doc", _doc(path), ""
+        if ext == ".pptx":
+            return "pptx", _pptx(path), ""
+        if ext == ".ppt":
+            return "ppt", _ppt(path), ""
         if ext in {".txt", ".md"}:
             return ext.lstrip("."), _plain(path), ""
         if ext == ".csv":
@@ -38,6 +42,8 @@ def extract_chunks(path: Path) -> tuple[str, list[TextChunk], str]:
             return "hwp", _hwp(path), ""
         if ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
             return "image", _image(path), ""
+        if ext == ".zip":
+            return "zip", _zip(path), ""
         return "unknown", [], f"Unsupported extension: {ext}"
     except Exception as exc:  # noqa: BLE001 — surface parse failures to ingest
         return ext.lstrip(".") or "unknown", [], str(exc)
@@ -223,6 +229,66 @@ def _image(path: Path) -> list[TextChunk]:
     except Exception:
         pass
     return [TextChunk(text=detail, location="이미지")]
+
+
+def _pptx(path: Path) -> list[TextChunk]:
+    """Slide text (+ notes) via python-pptx. Empty decks still get a filename chunk."""
+    from pptx import Presentation
+
+    prs = Presentation(str(path))
+    chunks: list[TextChunk] = []
+    for idx, slide in enumerate(prs.slides, start=1):
+        parts: list[str] = []
+        for shape in slide.shapes:
+            if not getattr(shape, "has_text_frame", False):
+                continue
+            for para in shape.text_frame.paragraphs:
+                line = (para.text or "").strip()
+                if line:
+                    parts.append(line)
+        if slide.has_notes_slide:
+            notes = slide.notes_slide.notes_text_frame
+            note_text = (notes.text or "").strip() if notes else ""
+            if note_text:
+                parts.append(note_text)
+        text = "\n".join(parts).strip()
+        if text:
+            chunks.append(TextChunk(text=text, location=f"슬라이드 {idx}", page=idx))
+    if chunks:
+        return chunks
+    return [TextChunk(text=f"[PowerPoint] {path.name}", location="파일명")]
+
+
+def _ppt(path: Path) -> list[TextChunk]:
+    """Legacy .ppt: mislabeled .pptx opens as pptx; OLE .ppt gets a searchable stub."""
+    head = path.read_bytes()[:8]
+    if head[:2] == b"PK":
+        return _pptx(path)
+    return [
+        TextChunk(
+            text=(
+                f"[PowerPoint] {path.name}\n"
+                "구형 .ppt(바이너리)는 텍스트 추출을 지원하지 않습니다. "
+                "PowerPoint에서 .pptx로 저장하면 본문을 검색할 수 있습니다."
+            ),
+            location="파일명",
+        )
+    ]
+
+
+def _zip(path: Path) -> list[TextChunk]:
+    """Index ZIP member names so calendar/home attach succeeds (no nested unpack)."""
+    if not zipfile.is_zipfile(path):
+        raise ValueError("유효한 .zip 파일이 아닙니다.")
+    lines = [f"[ZIP] {path.name}"]
+    with zipfile.ZipFile(path) as zf:
+        names = [info.filename for info in zf.infolist() if not info.is_dir()]
+        lines.append(f"파일 {len(names)}개")
+        for name in names[:80]:
+            lines.append(f"· {name}")
+        if len(names) > 80:
+            lines.append(f"… 외 {len(names) - 80}개")
+    return [TextChunk(text="\n".join(lines), location="목록")]
 
 
 def _hwpx(path: Path) -> list[TextChunk]:
