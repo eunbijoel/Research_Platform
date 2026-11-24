@@ -46,6 +46,9 @@ if not hasattr(research_note_engine, "stt_available"):
 MODE_LABELS = research_note_engine.MODE_LABELS
 MODE_MEETING = research_note_engine.MODE_MEETING
 MODE_RESEARCH = research_note_engine.MODE_RESEARCH
+DEFAULT_ORG = research_note_engine.DEFAULT_ORG
+DEFAULT_PI = research_note_engine.DEFAULT_PI
+DEFAULT_PROJECT_CODE = research_note_engine.DEFAULT_PROJECT_CODE
 build_research_note_docx = research_note_engine.build_research_note_docx
 build_research_note_hwpx = research_note_engine.build_research_note_hwpx
 generate_research_note_summary = research_note_engine.generate_research_note_summary
@@ -53,9 +56,11 @@ hwpx_available = research_note_engine.hwpx_available
 meeting_as_markdown = research_note_engine.meeting_as_markdown
 meeting_rows = research_note_engine.meeting_rows
 note_as_markdown = research_note_engine.note_as_markdown
+note_layout = research_note_engine.note_layout
 note_rows = research_note_engine.note_rows
 parse_meeting_note_fields = research_note_engine.parse_meeting_note_fields
 parse_research_note_fields = research_note_engine.parse_research_note_fields
+research_note_preview_html = research_note_engine.research_note_preview_html
 stt_available = research_note_engine.stt_available
 transcribe_audio_bytes = research_note_engine.transcribe_audio_bytes
 from research_memory.pipeline.extractors import extract_chunks
@@ -2256,11 +2261,21 @@ def _research_note_panel() -> None:
     for k, v in (
         ("rn_mode", MODE_RESEARCH),
         ("rn_topic", ""),
-        ("rn_owner", ""),
+        ("rn_owner", DEFAULT_PI),
         ("rn_author", ""),
         ("rn_content", ""),
         ("rn_results", ""),
         ("rn_etc", ""),
+        ("rn_project_code", DEFAULT_PROJECT_CODE),
+        ("rn_project_name", ""),
+        ("rn_subproject", ""),
+        ("rn_org", DEFAULT_ORG),
+        ("rn_datetime_place", ""),
+        ("rn_attendees", ""),
+        ("rn_summary", ""),
+        ("rn_participants", ""),
+        ("rn_verifier", ""),
+        ("rn_verify_date", ""),
         ("rn_writer_text", ""),
         ("mt_attendees", ""),
         ("mt_agenda", ""),
@@ -2311,13 +2326,33 @@ def _research_note_panel() -> None:
                 st.session_state.mt_discussion = text
         else:
             parsed = parse_research_note_fields(text)
-            if parsed.get("topic") or parsed.get("results") or "주제 제안" in text:
+            known = any(
+                parsed.get(k)
+                for k in (
+                    "topic",
+                    "summary",
+                    "content",
+                    "attendees",
+                    "participants",
+                    "datetime_place",
+                )
+            ) or any(
+                marker in text
+                for marker in ("실험제목", "주제 제안", "실험내용", "실험내용요약")
+            )
+            if known:
                 if parsed.get("topic"):
                     st.session_state.rn_topic = parsed["topic"]
+                if parsed.get("datetime_place"):
+                    st.session_state.rn_datetime_place = parsed["datetime_place"]
+                if parsed.get("attendees"):
+                    st.session_state.rn_attendees = parsed["attendees"]
+                if parsed.get("summary"):
+                    st.session_state.rn_summary = parsed["summary"]
                 if str(parsed.get("content") or "").strip():
                     st.session_state.rn_content = parsed["content"]
-                if parsed.get("results"):
-                    st.session_state.rn_results = parsed["results"]
+                if parsed.get("participants"):
+                    st.session_state.rn_participants = parsed["participants"]
             else:
                 st.session_state.rn_content = text
         st.session_state.rn_converted = True
@@ -2491,10 +2526,16 @@ def _research_note_panel() -> None:
                 parsed = parse_research_note_fields(summary)
                 if parsed.get("topic"):
                     st.session_state.rn_topic = parsed["topic"]
+                if parsed.get("datetime_place"):
+                    st.session_state.rn_datetime_place = parsed["datetime_place"]
+                if parsed.get("attendees"):
+                    st.session_state.rn_attendees = parsed["attendees"]
+                if parsed.get("summary"):
+                    st.session_state.rn_summary = parsed["summary"]
                 if parsed.get("content"):
                     st.session_state.rn_content = parsed["content"]
-                if parsed.get("results"):
-                    st.session_state.rn_results = parsed["results"]
+                if parsed.get("participants"):
+                    st.session_state.rn_participants = parsed["participants"]
             st.session_state.rn_converted = True
             st.rerun()
 
@@ -2505,7 +2546,7 @@ def _research_note_panel() -> None:
             for k in (
                 ("rn_topic", "mt_discussion", "mt_decisions", "mt_actions")
                 if mode == MODE_MEETING
-                else ("rn_topic", "rn_content", "rn_results")
+                else ("rn_topic", "rn_content", "rn_summary", "rn_attendees")
             )
         )
     )
@@ -2542,7 +2583,11 @@ def _research_note_panel() -> None:
             label_visibility="collapsed",
         )
         st.markdown(f"**{mode_title} 미리보기 (표)**")
-        components.html(_rn_preview_html(mode=mode), height=420, scrolling=True)
+        components.html(
+            _rn_preview_html(mode=mode),
+            height=560 if mode == MODE_RESEARCH else 420,
+            scrolling=True,
+        )
 
     with mid:
         st.write("")
@@ -2571,18 +2616,42 @@ def _research_note_panel() -> None:
                 placeholder="담당 / 기한 / 할 일",
             )
         else:
-            st.text_input("주제", key="rn_topic")
-            st.text_input("책임자", key="rn_owner")
-            st.date_input("일시", key="rn_date")
-            st.text_input("작성자", key="rn_author")
-            st.text_area("내용", key="rn_content", height=160)
-            st.text_area("연구결과", key="rn_results", height=100)
-            st.text_area("기타내용", key="rn_etc", height=80)
+            # Prefill 과제명 from Library project title once when empty.
+            if not str(st.session_state.get("rn_project_name") or "").strip():
+                proj = repo.get_project(project_id)
+                title = str((proj or {}).get("title") or "").strip()
+                if title and title != project_id:
+                    st.session_state.rn_project_name = title
+            c_a, c_b = st.columns(2)
+            with c_a:
+                st.date_input("작성일자", key="rn_date")
+            with c_b:
+                st.text_input("과제번호", key="rn_project_code")
+            st.text_input("과제명", key="rn_project_name")
+            st.text_input("세부과제명", key="rn_subproject")
+            c_c, c_d = st.columns(2)
+            with c_c:
+                st.text_input("주관/참여기관", key="rn_org")
+            with c_d:
+                st.text_input("연구책임자", key="rn_owner")
+            st.text_input("실험제목", key="rn_topic")
+            st.text_input("일시/장소", key="rn_datetime_place")
+            st.text_input("참석자", key="rn_attendees")
+            st.text_area("실험내용요약", key="rn_summary", height=80)
+            st.text_area("실험내용", key="rn_content", height=160)
+            st.text_input("실험참여자", key="rn_participants")
+            c_e, c_f = st.columns(2)
+            with c_e:
+                st.text_input("연구노트 작성자", key="rn_author")
+            with c_f:
+                st.text_input("확인자", key="rn_verifier")
+            st.text_input("확인일자", key="rn_verify_date", placeholder="YYYY-MM-DD")
 
     st.markdown("---")
     st.subheader("4. Export & Save")
     d = st.session_state.get("rn_date")
     date_s = d.isoformat() if hasattr(d, "isoformat") else str(d or "")
+    verify_s = str(st.session_state.get("rn_verify_date") or "").strip()
     if mode == MODE_MEETING:
         rows = meeting_rows(
             topic=st.session_state.get("rn_topic") or "",
@@ -2593,28 +2662,47 @@ def _research_note_panel() -> None:
             decisions=st.session_state.get("mt_decisions") or "",
             actions=st.session_state.get("mt_actions") or "",
         )
+        layout = None
         export_title = "회의록"
         prefix = "meeting_minutes"
     else:
-        rows = note_rows(
-            topic=st.session_state.get("rn_topic") or "",
-            owner=st.session_state.get("rn_owner") or "",
-            date_s=date_s,
-            author=st.session_state.get("rn_author") or "",
+        layout = note_layout(
+            created_date=date_s,
+            project_code=st.session_state.get("rn_project_code") or DEFAULT_PROJECT_CODE,
+            project_name=st.session_state.get("rn_project_name") or "",
+            subproject_name=st.session_state.get("rn_subproject") or "",
+            org=st.session_state.get("rn_org") or DEFAULT_ORG,
+            pi=st.session_state.get("rn_owner") or DEFAULT_PI,
+            experiment_title=st.session_state.get("rn_topic") or "",
+            datetime_place=st.session_state.get("rn_datetime_place") or "",
+            attendees=st.session_state.get("rn_attendees") or "",
+            summary=st.session_state.get("rn_summary") or "",
             content=st.session_state.get("rn_content") or "",
-            results=st.session_state.get("rn_results") or "",
-            etc=st.session_state.get("rn_etc") or "",
+            participants=st.session_state.get("rn_participants") or "",
+            author=st.session_state.get("rn_author") or "",
+            verifier=st.session_state.get("rn_verifier") or "",
+            author_date=date_s,
+            verify_date=verify_s,
         )
+        rows = [pair for row in layout for pair in row]
         export_title = "연구노트"
         prefix = "research_note"
 
     try:
-        docx_bytes = build_research_note_docx(rows, title=export_title)
+        if layout is not None:
+            docx_bytes = build_research_note_docx(title=export_title, layout=layout)
+        else:
+            docx_bytes = build_research_note_docx(rows, title=export_title)
         hwpx_bytes = None
         hwpx_err = ""
         if hwpx_available():
             try:
-                hwpx_bytes = build_research_note_hwpx(rows, title=export_title)
+                if layout is not None:
+                    hwpx_bytes = build_research_note_hwpx(
+                        title=export_title, layout=layout
+                    )
+                else:
+                    hwpx_bytes = build_research_note_hwpx(rows, title=export_title)
             except Exception as exc:  # noqa: BLE001
                 hwpx_err = str(exc)
     except Exception as exc:  # noqa: BLE001
@@ -2663,14 +2751,24 @@ def _research_note_panel() -> None:
                 )
             else:
                 md = note_as_markdown(
-                    topic=st.session_state.get("rn_topic") or "",
-                    owner=st.session_state.get("rn_owner") or "",
-                    date_s=date_s,
-                    author=st.session_state.get("rn_author") or "",
-                    content=st.session_state.get("rn_content") or "",
-                    results=st.session_state.get("rn_results") or "",
-                    etc=st.session_state.get("rn_etc") or "",
                     project_id=project_id,
+                    created_date=date_s,
+                    project_code=st.session_state.get("rn_project_code")
+                    or DEFAULT_PROJECT_CODE,
+                    project_name=st.session_state.get("rn_project_name") or "",
+                    subproject_name=st.session_state.get("rn_subproject") or "",
+                    org=st.session_state.get("rn_org") or DEFAULT_ORG,
+                    pi=st.session_state.get("rn_owner") or DEFAULT_PI,
+                    experiment_title=st.session_state.get("rn_topic") or "",
+                    datetime_place=st.session_state.get("rn_datetime_place") or "",
+                    attendees=st.session_state.get("rn_attendees") or "",
+                    summary=st.session_state.get("rn_summary") or "",
+                    content=st.session_state.get("rn_content") or "",
+                    participants=st.session_state.get("rn_participants") or "",
+                    author=st.session_state.get("rn_author") or "",
+                    verifier=st.session_state.get("rn_verifier") or "",
+                    author_date=date_s,
+                    verify_date=verify_s,
                 )
             with st.spinner(f"Memory에 {mode_title} 저장 중…"):
                 result = ingest_bytes(
@@ -2725,35 +2823,23 @@ def _rn_preview_html(*, mode: str = MODE_RESEARCH) -> str:
         )
         title = "회의록"
         tall = {"논의내용", "결정사항", "Action Item", "안 건"}
-    else:
-        rows = note_rows(
-            topic=st.session_state.get("rn_topic") or "",
-            owner=st.session_state.get("rn_owner") or "",
-            date_s=date_s,
-            author=st.session_state.get("rn_author") or "",
-            content=st.session_state.get("rn_content") or "",
-            results=st.session_state.get("rn_results") or "",
-            etc=st.session_state.get("rn_etc") or "",
-        )
-        title = "연구노트"
-        tall = {"내 용", "연구결과", "기타내용"}
-    body = []
-    for label, val in rows:
-        if label in {"내 용", "논의내용"}:
-            min_h = "140px"
-        elif label in tall:
-            min_h = "90px"
-        else:
-            min_h = "36px"
-        body.append(
-            f"""<tr>
+        body = []
+        for label, val in rows:
+            if label in {"논의내용"}:
+                min_h = "140px"
+            elif label in tall:
+                min_h = "90px"
+            else:
+                min_h = "36px"
+            body.append(
+                f"""<tr>
   <th style="width:22%;background:#f0f0f0;text-align:center;vertical-align:middle;
              border:1px solid #333;padding:8px;font-weight:600;">{escape(label)}</th>
   <td style="border:1px solid #333;padding:8px;vertical-align:top;min-height:{min_h};
              white-space:pre-wrap;">{escape(val)}</td>
 </tr>"""
-        )
-    return f"""
+            )
+        return f"""
 <div style="font-family:'Malgun Gothic','맑은 고딕',sans-serif;color:#111;">
   <div style="text-align:center;font-size:22px;font-weight:700;margin:8px 0 14px;">{escape(title)}</div>
   <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
@@ -2761,6 +2847,26 @@ def _rn_preview_html(*, mode: str = MODE_RESEARCH) -> str:
   </table>
 </div>
 """
+    verify_s = str(st.session_state.get("rn_verify_date") or "").strip()
+    layout = note_layout(
+        created_date=date_s,
+        project_code=st.session_state.get("rn_project_code") or DEFAULT_PROJECT_CODE,
+        project_name=st.session_state.get("rn_project_name") or "",
+        subproject_name=st.session_state.get("rn_subproject") or "",
+        org=st.session_state.get("rn_org") or DEFAULT_ORG,
+        pi=st.session_state.get("rn_owner") or DEFAULT_PI,
+        experiment_title=st.session_state.get("rn_topic") or "",
+        datetime_place=st.session_state.get("rn_datetime_place") or "",
+        attendees=st.session_state.get("rn_attendees") or "",
+        summary=st.session_state.get("rn_summary") or "",
+        content=st.session_state.get("rn_content") or "",
+        participants=st.session_state.get("rn_participants") or "",
+        author=st.session_state.get("rn_author") or "",
+        verifier=st.session_state.get("rn_verifier") or "",
+        author_date=date_s,
+        verify_date=verify_s,
+    )
+    return research_note_preview_html(layout, title="연구노트")
 
 
 def _similarity_panel() -> None:
