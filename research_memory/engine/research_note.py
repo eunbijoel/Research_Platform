@@ -719,19 +719,37 @@ def research_note_preview_html(
 """
 
 
+def export_basename(*, date_s: str, title: str, mode: str = MODE_RESEARCH) -> str:
+    """Download stem: ``yymmdd_제목_연구노트`` (or ``_회의록``)."""
+    mode = normalize_note_mode(mode)
+    digits = re.sub(r"\D", "", date_s or "")
+    if len(digits) >= 8:
+        yymmdd = digits[-8:][2:]
+    elif len(digits) == 6:
+        yymmdd = digits
+    else:
+        from datetime import date as _date
+
+        yymmdd = _date.today().strftime("%y%m%d")
+    raw_title = (title or "").strip() or MODE_LABELS[mode]
+    slug = re.sub(r'[\\/:*?"<>|]+', " ", raw_title)
+    slug = re.sub(r"\s+", " ", slug).strip()[:60] or MODE_LABELS[mode]
+    return f"{yymmdd}_{slug}_{MODE_LABELS[mode]}"
+
+
 def build_research_note_hwpx(
     rows: Sequence[tuple[str, str]] | None = None,
     *,
     title: str = "연구노트",
     layout: Sequence[Sequence[tuple[str, str]]] | None = None,
 ) -> bytes:
-    """Optional HWPX export when python-hwpx is installed."""
+    """Optional HWPX export when python-hwpx is installed.
+
+    Uses the same 4-column grid as DOCX/HTML (split rows + merged value cells).
+    """
     from hwpx import HwpxDocument  # type: ignore
 
-    # HWPX helper is 2-col friendly; flatten the official grid.
-    note_rows_list = [
-        pair for row in _normalize_note_layout(layout, rows) for pair in row
-    ]
+    grid = _normalize_note_layout(layout, rows)
     doc = HwpxDocument.new()
     paras = list(getattr(doc, "paragraphs", None) or [])
     if paras:
@@ -742,19 +760,45 @@ def build_research_note_hwpx(
     else:
         doc.add_paragraph(title)
 
-    table = doc.add_table(rows=len(note_rows_list), cols=2, width=45_000)
+    table = doc.add_table(rows=len(grid), cols=4, width=45_000)
     try:
-        table.set_column_widths([2200, 7800])
+        table.set_column_widths([2200, 3900, 2200, 3900])
     except Exception:
         pass
-    for i, (label, val) in enumerate(note_rows_list):
-        text = val if str(val).strip() else " "
-        table.set_cell_text(i, 0, label if label else " ")
-        table.set_cell_text(i, 1, _strip_md_noise(text), split_paragraphs=True)
+
+    def _label(r: int, c: int, text: str) -> None:
+        table.set_cell_text(r, c, text if text else " ")
         try:
-            table.set_cell_shading(i, 0, f"#{LABEL_FILL}")
+            table.set_cell_shading(r, c, f"#{LABEL_FILL}")
         except Exception:
             pass
+
+    def _value(r: int, c: int, text: str) -> None:
+        cleaned = _strip_md_noise(text)
+        table.set_cell_text(
+            r,
+            c,
+            cleaned if cleaned.strip() else " ",
+            logical=True,
+            split_paragraphs=True,
+        )
+
+    for i, cells in enumerate(grid):
+        if len(cells) == 1:
+            label, val = cells[0]
+            _label(i, 0, label)
+            try:
+                table.merge_cells(i, 1, i, 3)
+            except Exception:
+                pass
+            _value(i, 1, val)
+        else:
+            (l1, v1), (l2, v2) = cells[0], cells[1]
+            _label(i, 0, l1)
+            _value(i, 1, v1)
+            _label(i, 2, l2)
+            _value(i, 3, v2)
+
     raw = doc.to_bytes()
     if not raw or raw[:2] != b"PK":
         raise RuntimeError("연구노트 HWPX 생성 실패")
