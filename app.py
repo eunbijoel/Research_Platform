@@ -51,6 +51,7 @@ DEFAULT_PI = research_note_engine.DEFAULT_PI
 DEFAULT_PROJECT_CODE = research_note_engine.DEFAULT_PROJECT_CODE
 build_research_note_docx = research_note_engine.build_research_note_docx
 build_research_note_hwpx = research_note_engine.build_research_note_hwpx
+export_basename = research_note_engine.export_basename
 generate_research_note_summary = research_note_engine.generate_research_note_summary
 hwpx_available = research_note_engine.hwpx_available
 meeting_as_markdown = research_note_engine.meeting_as_markdown
@@ -2664,7 +2665,6 @@ def _research_note_panel() -> None:
         )
         layout = None
         export_title = "회의록"
-        prefix = "meeting_minutes"
     else:
         layout = note_layout(
             created_date=date_s,
@@ -2686,7 +2686,6 @@ def _research_note_panel() -> None:
         )
         rows = [pair for row in layout for pair in row]
         export_title = "연구노트"
-        prefix = "research_note"
 
     try:
         if layout is not None:
@@ -2709,10 +2708,11 @@ def _research_note_panel() -> None:
         st.error(f"표 형식 파일 생성 실패: {exc}")
         return
 
-    topic_slug = re.sub(
-        r"[^\w가-힣\-]+", "_", (st.session_state.get("rn_topic") or prefix)
-    )[:40]
-    base_name = f"{prefix}_{project_id}_{date_s}_{topic_slug}".strip("_")
+    base_name = export_basename(
+        date_s=date_s,
+        title=st.session_state.get("rn_topic") or "",
+        mode=mode,
+    )
 
     c1, c2, c3 = st.columns(3)
     with c1:
