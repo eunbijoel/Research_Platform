@@ -58,7 +58,6 @@ meeting_as_markdown = research_note_engine.meeting_as_markdown
 meeting_rows = research_note_engine.meeting_rows
 note_as_markdown = research_note_engine.note_as_markdown
 note_layout = research_note_engine.note_layout
-note_rows = research_note_engine.note_rows
 parse_meeting_note_fields = research_note_engine.parse_meeting_note_fields
 parse_research_note_fields = research_note_engine.parse_research_note_fields
 research_note_preview_html = research_note_engine.research_note_preview_html
@@ -2265,8 +2264,6 @@ def _research_note_panel() -> None:
         ("rn_owner", DEFAULT_PI),
         ("rn_author", ""),
         ("rn_content", ""),
-        ("rn_results", ""),
-        ("rn_etc", ""),
         ("rn_project_code", DEFAULT_PROJECT_CODE),
         ("rn_project_name", ""),
         ("rn_subproject", ""),
