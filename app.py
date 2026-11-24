@@ -6,6 +6,7 @@ import importlib
 import re
 import sys
 from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
 from html import escape
 from pathlib import Path
 
@@ -226,7 +227,11 @@ def _last_indexed_label() -> str:
             times.append(path.stat().st_mtime)
     if not times:
         return "—"
-    return datetime.fromtimestamp(max(times)).strftime("%Y-%m-%d %H:%M")
+    # Container clock is UTC; show Korea local time on the dashboard.
+    return (
+        datetime.fromtimestamp(max(times), tz=ZoneInfo("Asia/Seoul"))
+        .strftime("%Y-%m-%d %H:%M")
+    )
 
 
 def _inject_ui_css() -> None:
