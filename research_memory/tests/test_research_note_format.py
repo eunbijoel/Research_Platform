@@ -5,6 +5,9 @@ from research_memory.engine.research_note import (
     DEFAULT_PI,
     DEFAULT_PROJECT_CODE,
     build_research_note_docx,
+    build_research_note_hwpx,
+    export_basename,
+    hwpx_available,
     note_layout,
     parse_research_note_fields,
     research_note_preview_html,
@@ -68,3 +71,42 @@ def test_docx_and_preview_include_new_fields() -> None:
     assert "colspan=\"3\"" in html
     raw = build_research_note_docx(title="연구노트", layout=layout)
     assert raw[:2] == b"PK"
+
+
+def test_export_basename_yymmdd_title_suffix() -> None:
+    assert (
+        export_basename(date_s="2026-11-24", title="한독 포럼 요약")
+        == "261124_한독 포럼 요약_연구노트"
+    )
+    assert (
+        export_basename(date_s="2026-11-24", title="주간 회의", mode="meeting")
+        == "261124_주간 회의_회의록"
+    )
+
+
+def test_hwpx_keeps_four_column_grid(tmp_path) -> None:
+    if not hwpx_available():
+        return
+    from hwpx import HwpxDocument
+
+    layout = note_layout(
+        created_date="2026-11-24",
+        project_code="424C6997",
+        experiment_title="한독 포럼 요약",
+        content="본문",
+    )
+    raw = build_research_note_hwpx(title="연구노트", layout=layout)
+    assert raw[:2] == b"PK"
+    path = tmp_path / "note.hwpx"
+    path.write_bytes(raw)
+    table = list(HwpxDocument.open(path).tables)[0]
+    assert table.column_count == 4
+    assert table.row_count == len(layout)
+    assert (table.cell(0, 0).text or "").strip() == "작성일자"
+    assert (table.cell(0, 2).text or "").strip() == "과제번호"
+    assert (table.cell(0, 3).text or "").strip() == "424C6997"
+    assert (table.cell(4, 0).text or "").strip() == "실험제목"
+    assert (table.cell(4, 1).text or "").strip() == "한독 포럼 요약"
+    # Full-width value cell spans three columns.
+    span = table.get_cell_map()[4][1].span
+    assert span == (1, 3)
