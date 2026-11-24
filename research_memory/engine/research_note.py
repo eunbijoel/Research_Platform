@@ -19,23 +19,27 @@ MODE_LABELS = {
     MODE_MEETING: "회의록",
 }
 
+# Defaults shown on the official research-note template (KETI).
+DEFAULT_PROJECT_CODE = "424C6997"
+DEFAULT_ORG = "한국전자기술연구원"
+DEFAULT_PI = "강정훈"
+LABEL_FILL = "BDD7EE"
+
 RESEARCH_NOTE_SECTIONS = """
 아래 형식을 그대로 지켜 작성하세요. 각 제목은 반드시 줄의 시작에 쓰고, 마크다운(#, **)은 쓰지 마세요.
 원문에 없는 내용은 만들지 말고, 없으면 「확인 필요」라고 쓰세요.
 
-주제 제안:
+실험제목:
 
-연구 또는 작업 목적
+일시/장소:
 
-사용한 자료 및 파일
+참석자:
 
-내용:
+실험내용요약:
 
-연구 결과:
+실험내용:
 
-확인된 문제점
-
-향후 작업 계획
+실험참여자:
 """
 
 MEETING_NOTE_SECTIONS = """
@@ -59,11 +63,16 @@ Action Item:
 """
 
 _SECTION_SPECS: list[tuple[str, str]] = [
-    ("topic", r"(?m)^\s*주제\s*제안\s*:?\s*"),
+    ("topic", r"(?m)^\s*(?:실험\s*제목|주제\s*제안|주\s*제)\s*:?\s*"),
+    ("datetime_place", r"(?m)^\s*(?:일시\s*/\s*장소|일\s*시)\s*:?\s*"),
+    ("attendees", r"(?m)^\s*참석자\s*:?\s*"),
+    ("summary", r"(?m)^\s*(?:실험\s*내용\s*요약|연구\s*결과)\s*:?\s*"),
+    # Negative lookahead so "실험내용요약" is not captured as "실험내용".
+    ("content", r"(?m)^\s*(?:실험\s*내용(?!\s*요약)|(?:주요\s+)?내용)\s*:?\s*"),
+    ("participants", r"(?m)^\s*실험\s*참여자\s*:?\s*"),
+    # Legacy headings still accepted from older drafts
     ("purpose", r"(?m)^\s*연구\s*또는\s*작업\s*목적\s*:?\s*"),
     ("materials", r"(?m)^\s*사용한\s*자료(?:\s*및\s*파일)?\s*:?\s*"),
-    ("content", r"(?m)^\s*(?:주요\s*)?내용\s*:?\s*"),
-    ("results", r"(?m)^\s*연구\s*결과\s*:?\s*"),
     ("issues", r"(?m)^\s*확인된\s*문제점\s*:?\s*"),
     ("plan", r"(?m)^\s*향후\s*작업\s*계획\s*:?\s*"),
 ]
@@ -107,11 +116,17 @@ def _parse_sections(
         out[fallback_key] = raw
         return out
 
-    hits.sort(key=lambda x: x[0])
-    for i, (_start, key, end) in enumerate(hits):
+    # Prefer the longer heading when two patterns share a start (e.g. 실험내용 vs 요약).
+    best: dict[int, tuple[int, str, int]] = {}
+    for start, key, end in hits:
+        prev = best.get(start)
+        if prev is None or end > prev[2]:
+            best[start] = (start, key, end)
+    ordered = sorted(best.values(), key=lambda x: x[0])
+    for i, (_start, key, end) in enumerate(ordered):
         if key not in out:
             continue
-        stop = hits[i + 1][0] if i + 1 < len(hits) else len(raw)
+        stop = ordered[i + 1][0] if i + 1 < len(ordered) else len(raw)
         body = raw[end:stop].strip()
         body = re.sub(r"^\s*[-·*]\s*", "", body, count=1)
         out[key] = body.strip()
@@ -119,13 +134,31 @@ def _parse_sections(
 
 
 def parse_research_note_fields(text: str) -> dict[str, str]:
-    """통합 요약에서 주제/내용/연구결과만 추출."""
-    return _parse_sections(
+    """통합 요약에서 실험제목·요약·내용 등 표 필드를 추출."""
+    parsed = _parse_sections(
         text,
         _SECTION_SPECS,
-        ("topic", "content", "results"),
+        (
+            "topic",
+            "datetime_place",
+            "attendees",
+            "summary",
+            "content",
+            "participants",
+            "purpose",
+            "materials",
+            "issues",
+            "plan",
+        ),
         fallback_key="content",
     )
+    # Older drafts used 목적·문제점·계획 — fold into the new columns when empty.
+    if not (parsed.get("summary") or "").strip():
+        parsed["summary"] = parsed.get("purpose") or parsed.get("issues") or ""
+    if not (parsed.get("content") or "").strip():
+        parts = [parsed.get("materials") or "", parsed.get("plan") or ""]
+        parsed["content"] = "\n\n".join(p for p in parts if p.strip())
+    return parsed
 
 
 def parse_meeting_note_fields(text: str) -> dict[str, str]:
@@ -195,14 +228,15 @@ def _fallback_summary(text: str, filenames: list[str]) -> str:
     snippet = text.strip().replace("\n", " ")
     if len(snippet) > 600:
         snippet = snippet[:597] + "…"
+    materials = ", ".join(filenames) if filenames else "확인 필요"
     return (
-        f"주제 제안:\n{title}\n\n"
-        f"연구 또는 작업 목적:\n확인 필요\n\n"
-        f"사용한 자료 및 파일:\n{', '.join(filenames) if filenames else '확인 필요'}\n\n"
-        f"내용:\n{snippet}\n\n"
-        f"연구 결과:\n확인 필요\n\n"
-        f"확인된 문제점:\n확인 필요\n\n"
-        f"향후 작업 계획:\n확인 필요"
+        f"실험제목:\n{title}\n\n"
+        f"일시/장소:\n확인 필요\n\n"
+        f"참석자:\n확인 필요\n\n"
+        f"실험내용요약:\n확인 필요\n\n"
+        f"실험내용:\n{snippet}\n\n"
+        f"(참고 자료: {materials})\n\n"
+        f"실험참여자:\n확인 필요"
     )
 
 
@@ -303,25 +337,101 @@ def _transcribe_with_whisper(path: str) -> str:
     return str((result or {}).get("text") or "").strip()
 
 
+def note_layout(
+    *,
+    created_date: str = "",
+    project_code: str = "",
+    project_name: str = "",
+    subproject_name: str = "",
+    org: str = "",
+    pi: str = "",
+    experiment_title: str = "",
+    datetime_place: str = "",
+    attendees: str = "",
+    summary: str = "",
+    content: str = "",
+    participants: str = "",
+    author: str = "",
+    verifier: str = "",
+    author_date: str = "",
+    verify_date: str = "",
+) -> list[list[tuple[str, str]]]:
+    """Official research-note grid. Each inner list is one table row (1 or 2 label/value pairs)."""
+    return [
+        [
+            ("작성일자", created_date or ""),
+            ("과제번호", project_code or DEFAULT_PROJECT_CODE),
+        ],
+        [("과제명", project_name or "")],
+        [("세부과제명", subproject_name or "")],
+        [
+            ("주관/참여기관", org or DEFAULT_ORG),
+            ("연구책임자", pi or DEFAULT_PI),
+        ],
+        [("실험제목", experiment_title or "")],
+        [("일시/장소", datetime_place or "")],
+        [("참석자", attendees or "")],
+        [("실험내용요약", summary or "")],
+        [("실험내용", content or "")],
+        [("실험참여자", participants or "")],
+        [
+            ("연구노트 작성자", author or ""),
+            ("확인자", verifier or ""),
+        ],
+        [
+            ("작성일자", author_date or created_date or ""),
+            ("확인일자", verify_date or ""),
+        ],
+    ]
+
+
 def note_rows(
     *,
-    topic: str,
-    owner: str,
-    date_s: str,
-    author: str,
-    content: str,
-    results: str,
-    etc: str,
+    topic: str = "",
+    owner: str = "",
+    date_s: str = "",
+    author: str = "",
+    content: str = "",
+    results: str = "",
+    etc: str = "",
+    created_date: str = "",
+    project_code: str = "",
+    project_name: str = "",
+    subproject_name: str = "",
+    org: str = "",
+    pi: str = "",
+    experiment_title: str = "",
+    datetime_place: str = "",
+    attendees: str = "",
+    summary: str = "",
+    participants: str = "",
+    verifier: str = "",
+    author_date: str = "",
+    verify_date: str = "",
 ) -> list[tuple[str, str]]:
-    return [
-        ("주 제", topic or ""),
-        ("책 임 자", owner or ""),
-        ("일 시", date_s or ""),
-        ("작 성 자", author or ""),
-        ("내 용", content or ""),
-        ("연구결과", results or ""),
-        ("기타내용", etc or ""),
-    ]
+    """Flattened label/value pairs (markdown / simple callers)."""
+    layout = note_layout(
+        created_date=created_date or date_s,
+        project_code=project_code,
+        project_name=project_name,
+        subproject_name=subproject_name,
+        org=org,
+        pi=pi or owner,
+        experiment_title=experiment_title or topic,
+        datetime_place=datetime_place or date_s,
+        attendees=attendees,
+        summary=summary or results,
+        content=content if content else etc,
+        participants=participants,
+        author=author,
+        verifier=verifier,
+        author_date=author_date or created_date or date_s,
+        verify_date=verify_date,
+    )
+    flat: list[tuple[str, str]] = []
+    for row in layout:
+        flat.extend(row)
+    return flat
 
 
 def meeting_rows(
@@ -347,18 +457,33 @@ def meeting_rows(
 
 def note_as_markdown(
     *,
-    topic: str,
-    owner: str,
-    date_s: str,
-    author: str,
-    content: str,
-    results: str,
-    etc: str,
+    topic: str = "",
+    owner: str = "",
+    date_s: str = "",
+    author: str = "",
+    content: str = "",
+    results: str = "",
+    etc: str = "",
     project_id: str = "",
+    created_date: str = "",
+    project_code: str = "",
+    project_name: str = "",
+    subproject_name: str = "",
+    org: str = "",
+    pi: str = "",
+    experiment_title: str = "",
+    datetime_place: str = "",
+    attendees: str = "",
+    summary: str = "",
+    participants: str = "",
+    verifier: str = "",
+    author_date: str = "",
+    verify_date: str = "",
 ) -> str:
     """Plain markdown twin of the research-note table (good for Memory ingest)."""
+    title = experiment_title or topic or "제목 없음"
     lines = [
-        f"# 연구노트 — {topic or '제목 없음'}",
+        f"# 연구노트 — {title}",
         "",
     ]
     if project_id:
@@ -372,6 +497,20 @@ def note_as_markdown(
         content=content,
         results=results,
         etc=etc,
+        created_date=created_date,
+        project_code=project_code,
+        project_name=project_name,
+        subproject_name=subproject_name,
+        org=org,
+        pi=pi,
+        experiment_title=experiment_title,
+        datetime_place=datetime_place,
+        attendees=attendees,
+        summary=summary,
+        participants=participants,
+        verifier=verifier,
+        author_date=author_date,
+        verify_date=verify_date,
     ):
         lines.append(f"## {label.strip()}")
         lines.append(val.strip() or "확인 필요")
@@ -419,7 +558,22 @@ def meeting_as_markdown(
 
 def _normalize_note_rows(rows: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
     out = [(str(label or ""), str(val or "")) for label, val in rows]
-    return out or [("내 용", " ")]
+    return out or [("실험내용", " ")]
+
+
+def _normalize_note_layout(
+    layout: Sequence[Sequence[tuple[str, str]]] | None,
+    rows: Sequence[tuple[str, str]] | None = None,
+) -> list[list[tuple[str, str]]]:
+    if layout:
+        out: list[list[tuple[str, str]]] = []
+        for row in layout:
+            cells = [(str(label or ""), str(val or "")) for label, val in row]
+            if cells:
+                out.append(cells)
+        return out or [[("실험내용", " ")]]
+    flat = _normalize_note_rows(rows or [])
+    return [[pair] for pair in flat]
 
 
 def _strip_md_noise(text: str) -> str:
@@ -436,14 +590,42 @@ def _strip_md_noise(text: str) -> str:
     return "\n".join(out_lines)
 
 
-def build_research_note_docx(rows: Sequence[tuple[str, str]], *, title: str = "연구노트") -> bytes:
-    from docx import Document
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
+def _shade_cell(cell: object, fill: str = LABEL_FILL) -> None:
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
+
+    try:
+        shading = OxmlElement("w:shd")
+        shading.set(qn("w:fill"), fill)
+        shading.set(qn("w:val"), "clear")
+        cell._tc.get_or_add_tcPr().append(shading)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+
+def _write_docx_cell(cell: object, text: str, *, label: bool = False) -> None:
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    cell.text = text if str(text).strip() else (" " if not label else text)
+    if label:
+        _shade_cell(cell)
+        for p in cell.paragraphs:  # type: ignore[attr-defined]
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for run in p.runs:
+                run.bold = True
+
+
+def build_research_note_docx(
+    rows: Sequence[tuple[str, str]] | None = None,
+    *,
+    title: str = "연구노트",
+    layout: Sequence[Sequence[tuple[str, str]]] | None = None,
+) -> bytes:
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.shared import Cm, Pt
 
-    note_rows_list = _normalize_note_rows(rows)
+    grid = _normalize_note_layout(layout, rows)
     d = Document()
     h = d.add_paragraph(title)
     h.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -451,38 +633,105 @@ def build_research_note_docx(rows: Sequence[tuple[str, str]], *, title: str = "�
         h.runs[0].bold = True
         h.runs[0].font.size = Pt(16)
 
-    table = d.add_table(rows=len(note_rows_list), cols=2)
+    table = d.add_table(rows=len(grid), cols=4)
     table.style = "Table Grid"
     table.autofit = False
-    table.columns[0].width = Cm(3.2)
-    table.columns[1].width = Cm(13.0)
+    widths = (Cm(3.0), Cm(5.2), Cm(3.0), Cm(5.2))
+    for idx, width in enumerate(widths):
+        table.columns[idx].width = width
 
-    for i, (label, val) in enumerate(note_rows_list):
-        c0, c1 = table.rows[i].cells
-        c0.text = label
-        c1.text = _strip_md_noise(val)
-        try:
-            shading = OxmlElement("w:shd")
-            shading.set(qn("w:fill"), "F0F0F0")
-            shading.set(qn("w:val"), "clear")
-            c0._tc.get_or_add_tcPr().append(shading)
-        except Exception:
-            pass
-        for p in c0.paragraphs:
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            for run in p.runs:
-                run.bold = True
+    for i, cells in enumerate(grid):
+        row = table.rows[i]
+        if len(cells) == 1:
+            label, val = cells[0]
+            _write_docx_cell(row.cells[0], label, label=True)
+            merged = row.cells[1].merge(row.cells[3])
+            _write_docx_cell(merged, _strip_md_noise(val))
+        else:
+            (l1, v1), (l2, v2) = cells[0], cells[1]
+            _write_docx_cell(row.cells[0], l1, label=True)
+            _write_docx_cell(row.cells[1], _strip_md_noise(v1))
+            _write_docx_cell(row.cells[2], l2, label=True)
+            _write_docx_cell(row.cells[3], _strip_md_noise(v2))
+        # Tall body row
+        if any(lab in {"실험내용", "내 용"} for lab, _ in cells):
+            try:
+                tr = row._tr
+                trPr = tr.get_or_add_trPr()
+                from docx.oxml import OxmlElement
+                from docx.oxml.ns import qn
+
+                height = OxmlElement("w:trHeight")
+                height.set(qn("w:val"), "2400")
+                height.set(qn("w:hRule"), "atLeast")
+                trPr.append(height)
+            except Exception:
+                pass
 
     buf = io.BytesIO()
     d.save(buf)
     return buf.getvalue()
 
 
-def build_research_note_hwpx(rows: Sequence[tuple[str, str]], *, title: str = "연구노트") -> bytes:
+def research_note_preview_html(
+    layout: Sequence[Sequence[tuple[str, str]]],
+    *,
+    title: str = "연구노트",
+) -> str:
+    """HTML twin of the official 4-column research-note grid."""
+    import html as html_lib
+
+    tall = {"실험내용", "실험내용요약", "내 용"}
+    body: list[str] = []
+    for cells in layout:
+        if len(cells) == 1:
+            label, val = cells[0]
+            min_h = "140px" if label in tall else ("72px" if label == "실험내용요약" else "34px")
+            body.append(
+                f"""<tr>
+  <th style="width:18%;background:#{LABEL_FILL};text-align:center;vertical-align:middle;
+             border:1px solid #333;padding:8px;font-weight:600;">{html_lib.escape(label)}</th>
+  <td colspan="3" style="border:1px solid #333;padding:8px;vertical-align:top;min-height:{min_h};
+             white-space:pre-wrap;">{html_lib.escape(val)}</td>
+</tr>"""
+            )
+        else:
+            (l1, v1), (l2, v2) = cells[0], cells[1]
+            body.append(
+                f"""<tr>
+  <th style="width:18%;background:#{LABEL_FILL};text-align:center;vertical-align:middle;
+             border:1px solid #333;padding:8px;font-weight:600;">{html_lib.escape(l1)}</th>
+  <td style="width:32%;border:1px solid #333;padding:8px;vertical-align:top;
+             white-space:pre-wrap;">{html_lib.escape(v1)}</td>
+  <th style="width:18%;background:#{LABEL_FILL};text-align:center;vertical-align:middle;
+             border:1px solid #333;padding:8px;font-weight:600;">{html_lib.escape(l2)}</th>
+  <td style="width:32%;border:1px solid #333;padding:8px;vertical-align:top;
+             white-space:pre-wrap;">{html_lib.escape(v2)}</td>
+</tr>"""
+            )
+    return f"""
+<div style="font-family:'Malgun Gothic','맑은 고딕',sans-serif;color:#111;">
+  <div style="text-align:center;font-size:22px;font-weight:700;margin:8px 0 14px;">{html_lib.escape(title)}</div>
+  <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+    {''.join(body)}
+  </table>
+</div>
+"""
+
+
+def build_research_note_hwpx(
+    rows: Sequence[tuple[str, str]] | None = None,
+    *,
+    title: str = "연구노트",
+    layout: Sequence[Sequence[tuple[str, str]]] | None = None,
+) -> bytes:
     """Optional HWPX export when python-hwpx is installed."""
     from hwpx import HwpxDocument  # type: ignore
 
-    note_rows_list = _normalize_note_rows(rows)
+    # HWPX helper is 2-col friendly; flatten the official grid.
+    note_rows_list = [
+        pair for row in _normalize_note_layout(layout, rows) for pair in row
+    ]
     doc = HwpxDocument.new()
     paras = list(getattr(doc, "paragraphs", None) or [])
     if paras:
@@ -503,7 +752,7 @@ def build_research_note_hwpx(rows: Sequence[tuple[str, str]], *, title: str = "�
         table.set_cell_text(i, 0, label if label else " ")
         table.set_cell_text(i, 1, _strip_md_noise(text), split_paragraphs=True)
         try:
-            table.set_cell_shading(i, 0, "#F0F0F0")
+            table.set_cell_shading(i, 0, f"#{LABEL_FILL}")
         except Exception:
             pass
     raw = doc.to_bytes()
