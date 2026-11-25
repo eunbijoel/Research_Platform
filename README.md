@@ -115,7 +115,7 @@ research_memory/
   pipeline/            문서 파싱 · 메타/Fact · 인제스트
   kb/                  Knowledge Base
   engine/              Chat · Proposal · Schedule · Research Note
-                 docsim/  (문서 파서 · HWP/PDF 등 — ingest·미리보기용)
+                 docsim/  (HWP/HWPX 추출만 — 유사도 분석은 Document_SimilarityAnalysis)
 coding_agent/          코딩 에이전트 워크벤치 (deepagents-code · Ollama · Excel)
                        docs/excel_integration.md · tests/ (Excel·HITL·bridge)
 telegram_memory/       Research Memory Bot (Telegram, 읽기 전용)

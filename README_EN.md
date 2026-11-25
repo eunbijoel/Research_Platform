@@ -156,7 +156,7 @@ research_memory/
   pipeline/            Document parsing · metadata/fact extraction · ingest
   kb/                  Knowledge Base (SQLite + hybrid index)
   engine/              Chat · Proposal · Schedule · Research Note
-                 docsim/  (document parsers for HWP/PDF ingest and preview)
+                 docsim/  (HWP/HWPX extract only — similarity lives in Document_SimilarityAnalysis)
 coding_agent/          Coding agent workbench (deepagents-code · Ollama · Excel)
 telegram_memory/       Research Memory Bot (Telegram, read-only)
 ```
