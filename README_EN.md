@@ -38,7 +38,6 @@ flowchart TB
     CHAT[Chat]
     NOTE[Research Note]
     PROP[Proposal]
-    SIM[Similarity]
     SCHED[Schedule]
     CODE[Coding Agent]
     EVI[Evidence<br/>research docs / regulations]
@@ -53,11 +52,9 @@ flowchart TB
   U --> CHAT
   U --> NOTE
   U --> PROP
-  U --> SIM
   U --> SCHED
   U --> CODE
   HOME -->|browse| KB
-  SIM -->|compare docs| KB
   SCHED -->|project dates| KB
   EVI -->|retrieve| IDX
   IDX --> KB
@@ -83,7 +80,6 @@ Falls back to TF-IDF only when embeddings are unavailable.
 | **Chat** | Ask questions against Memory. Each answer cites its source (file, location) tagged as `[research doc]` or `[regulation]`. Refuses to answer without evidence. |
 | **Research Notes** | Draft research notes or meeting minutes. References Memory + uploads (meeting mode: recording/transcript). Table preview, DOCX/HWPX download, save to Memory. |
 | **Proposal** | Upload an RFP and generate a center-part draft with compliance points, grounded in **research docs + regulations**. This is not a full proposal auto-generator. |
-| **Similarity** | Compare a new document against Memory (or two documents against each other) at the sentence, page, and image level. Uses MiniLM + pHash for duplicate and reuse detection. |
 | **Coding Agent** | Local Ollama + deepagents-code coding workbench: chat, file explorer, editor, terminal, threads, and Excel/CSV inspect/analyze/transform. Workspace stored under `data/coding_agent/`. |
 
 ---
@@ -159,8 +155,8 @@ app.py                 UI (Streamlit)
 research_memory/
   pipeline/            Document parsing · metadata/fact extraction · ingest
   kb/                  Knowledge Base (SQLite + hybrid index)
-  engine/              Chat · Similarity · Proposal · Schedule · Research Note
-                 docsim/  (similarity: MiniLM · parsers · pHash)
+  engine/              Chat · Proposal · Schedule · Research Note
+                 docsim/  (document parsers for HWP/PDF ingest and preview)
 coding_agent/          Coding agent workbench (deepagents-code · Ollama · Excel)
 telegram_memory/       Research Memory Bot (Telegram, read-only)
 ```
