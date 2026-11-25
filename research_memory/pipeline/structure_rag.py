@@ -1,7 +1,6 @@
 """Structure-aware block extraction + chunking for RAG A/B experiments.
 
-Reuses docsim DOCX helpers (_iter_block_items, _table_text, page breaks) and
-docsim PDF page text. Does not modify production ingest indexes.
+Offline experiment only — does not modify production ingest indexes.
 """
 
 from __future__ import annotations
@@ -235,23 +234,49 @@ def _heading_level_from_location(location: str) -> int:
     return 1
 
 
+def _iter_docx_blocks(document: Any):
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    body = document.element.body
+    for child in body.iterchildren():
+        if child.tag == qn("w:p"):
+            yield Paragraph(child, document)
+        elif child.tag == qn("w:tbl"):
+            yield Table(child, document)
+
+
+def _docx_paragraph_has_page_break(paragraph: Any) -> bool:
+    from docx.oxml.ns import qn
+
+    for run in paragraph.runs:
+        for br in run._element.findall(qn("w:br")):
+            if br.get(qn("w:type")) == "page":
+                return True
+    return False
+
+
+def _docx_table_text(table: Any) -> str:
+    rows = []
+    for row in table.rows:
+        cells = [cell.text.strip() for cell in row.cells if cell.text and cell.text.strip()]
+        if cells:
+            rows.append(" | ".join(cells))
+    return "\n".join(rows)
+
+
 def _blocks_docx(path: Path) -> list[StructureBlock]:
     from docx import Document
     from docx.table import Table
     from docx.text.paragraph import Paragraph
-
-    from research_memory.engine.docsim.parsers.docx_parser import (
-        _iter_block_items,
-        _paragraph_has_page_break,
-        _table_text,
-    )
 
     document = Document(io.BytesIO(path.read_bytes()))
     blocks: list[StructureBlock] = []
     page = 1
     para_n = 0
     table_n = 0
-    for block in _iter_block_items(document):
+    for block in _iter_docx_blocks(document):
         if isinstance(block, Paragraph):
             text = (block.text or "").strip()
             if text:
@@ -284,10 +309,10 @@ def _blocks_docx(path: Path) -> list[StructureBlock]:
                             location=f"문단 {para_n}",
                         )
                     )
-            if _paragraph_has_page_break(block):
+            if _docx_paragraph_has_page_break(block):
                 page += 1
         elif isinstance(block, Table):
-            text = _table_text(block)
+            text = _docx_table_text(block)
             if text:
                 table_n += 1
                 blocks.append(
@@ -313,16 +338,18 @@ def _heading_level_from_style(style_name: str) -> int:
 
 
 def _blocks_pdf(path: Path) -> list[StructureBlock]:
-    """Reuse docsim PDF page text; add light heading heuristics inside each page."""
-    from research_memory.engine.docsim.parsers.pdf_parser import parse_pdf
+    """PDF page text via pypdf, with light heading heuristics inside each page."""
+    from pypdf import PdfReader
 
-    result = parse_pdf(path.name, path.read_bytes())
-    if not result.success:
-        raise ValueError(result.error_message or "PDF parse failed")
+    reader = PdfReader(str(path))
     blocks: list[StructureBlock] = []
-    for page in result.pages:
-        page_no = int(page.page_number)
-        lines = [ln.strip() for ln in (page.text or "").splitlines() if ln.strip()]
+    for page_idx, page in enumerate(reader.pages, start=1):
+        page_no = page_idx
+        lines = [
+            ln.strip()
+            for ln in ((page.extract_text() or "").splitlines())
+            if ln.strip()
+        ]
         if not lines:
             continue
         body: list[str] = []
